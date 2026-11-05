@@ -1,5 +1,5 @@
-// Shared module: edit lib/git-read.js in ~/.config/herdr-app; sync-lib.sh copies it into every
-// mod that imports it.
+// Shared module lib/git-read.js: every mod that imports it carries an identical copy, so change all
+// copies together (in the source home, edit lib/git-read.js and sync-lib.sh copies it on save).
 // Reading git without writing to it, shared by Files, Changes and History. Pure: the mods run git
 // themselves (with READ in front of every read) and pass the output here.
 

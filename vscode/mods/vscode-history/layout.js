@@ -1,5 +1,5 @@
-// Shared module: edit lib/layout.js in ~/.config/herdr-app; sync-lib.sh copies it into every mod
-// that imports it.
+// Shared module lib/layout.js: every mod that imports it carries an identical copy, so change all
+// copies together (in the source home, edit lib/layout.js and sync-lib.sh copies it on save).
 // Questions about Herdr's layout tree (what layout() from "herdr" returns), asked by several mods.
 // Pure: callers pass the tree, so this file never imports herdr. The node ids asked about
 // (sidebar, secondary, sidebar-body, secondary-body and the views inside them) are defined in
@@ -14,6 +14,12 @@ export function findNode(node, id) {
     if (found) return found;
   }
   return null;
+}
+
+// Whether any block under `node` (its children or floating blocks, at any depth) shows `mod`.
+export function hasMod(node, mod) {
+  if (node?.content?.mod === mod) return true;
+  return [...(node?.children ?? []), ...(node?.floating ?? [])].some((c) => hasMod(c, mod));
 }
 
 // Whether `mod` is one of the tabs of the right sidebar's stack ("secondary-body"). Its built-in

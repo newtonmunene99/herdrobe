@@ -5,8 +5,9 @@
 // Changes icon and the changes/history keys toggle instead.
 import { View, div, svg } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { theme, run, layout, agents, updates, shared, nextCommand } from "herdr";
+import { theme, run, layout, agents, updates, nextCommand } from "herdr";
 import { findNode as find } from "./layout.js";
+import { inboxView } from "./inbox.js";
 
 // The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-activitybar/${name}.svg`;
@@ -83,14 +84,11 @@ export default class ActivityBar extends View {
           .child(String(badge))));
   }
 
-  // Agents badge: blocked agents; in vscode-inbox also the finished-and-unsettled ones that
-  // vscode-statusbar records in shared "vscode.inbox".
+  // Agents badge: blocked agents, plus the finished ones not yet settled when the layout shows
+  // the Inbox (inbox.js).
   badge() {
-    const list = agents();
-    const needs = list.filter((a) => a.status === "blocked").length;
-    if (shared("layout") !== "vscode-inbox") return needs;
-    const finished = shared("vscode.inbox")?.finished ?? {};
-    return needs + list.filter((a) => a.status !== "blocked" && finished[a.address]).length;
+    const v = inboxView(agents());
+    return v.needs.length + v.finished.length;
   }
 
   // Draws the bar; the Settings button shows a "1" when an app update is ready.

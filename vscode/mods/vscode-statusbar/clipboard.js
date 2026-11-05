@@ -1,5 +1,5 @@
-// Shared module: edit lib/clipboard.js in ~/.config/herdr-app; sync-lib.sh copies it into every
-// mod that imports it.
+// Shared module lib/clipboard.js: every mod that imports it carries an identical copy, so change all
+// copies together (in the source home, edit lib/clipboard.js and sync-lib.sh copies it on save).
 import { exec, notify } from "herdr";
 
 // Copies `text` to the clipboard and confirms with a toast titled `title` (default "Copied") that

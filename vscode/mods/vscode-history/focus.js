@@ -1,5 +1,5 @@
-// Shared module: edit lib/focus.js in ~/.config/herdr-app; sync-lib.sh copies it into every mod
-// that imports it.
+// Shared module lib/focus.js: every mod that imports it carries an identical copy, so change all
+// copies together (in the source home, edit lib/focus.js and sync-lib.sh copies it on save).
 import { focused, panes, spaces } from "herdr";
 
 // Where the person is working now: the focused pane's live folder (`cwd`, else the active space's

@@ -4,16 +4,14 @@
 //   Finished   finished and not yet settled, as cards with Settle (the header has Settle all)
 //   Working    one row per working agent
 //   Settled    everything else (folded)
-// "Finished" comes from shared "vscode.inbox", which vscode-statusbar keeps (it is on screen
-// from launch, so finishes aren't missed while this view or layout isn't showing). This mod
-// only reads it, and writes settles.
+// The sections and their order come from the Inbox (inbox.js), which vscode-statusbar tracks (it
+// is on screen from launch, so finishes aren't missed while this view or layout isn't showing).
+// This mod draws them and settles.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, spaces, panes, run, theme, shared, setShared, setAgentOrder, hc, nextCommand, openOverlay, pickFolder } from "herdr";
+import { inboxView, settle } from "./inbox.js";
 
-// Shared key of the inbox record vscode-statusbar keeps, keyed by agent address: prev holds the
-// last status it saw; since, finished and settled hold times in ms since the epoch.
-const INBOX = "vscode.inbox";
 // The ring spinner shipped with vscode-tabs, so both mods spin the same icon.
 const SPINNER = "mods/vscode-tabs/spinner.svg";
 // Path of workspace-chrome's chevron icon pointing dir ("down" or "right").
@@ -80,22 +78,6 @@ function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* per-window nicety only */ }
 }
 
-// Returns a copy of the shared inbox record with all four maps present, safe to change and
-// write back with setShared.
-function inbox() {
-  const s = shared(INBOX) ?? {};
-  return { prev: { ...s.prev }, since: { ...s.since }, finished: { ...s.finished }, settled: { ...s.settled } };
-}
-
-// Moves the agents at addresses from Finished to Settled, stamped now. A settled agent can't be
-// finished again until it works again: vscode-statusbar clears the stamp when it starts working.
-function settle(addresses) {
-  const box = inbox();
-  const now = Date.now();
-  for (const a of addresses) { delete box.finished[a]; box.settled[a] = now; }
-  setShared(INBOX, box);
-}
-
 // The agents sidebar: a space filter header over the four folding sections.
 export default class VscodeAgents extends View {
   // Restores the folded sections and the space filter saved by this copy, starts the timers that
@@ -113,7 +95,7 @@ export default class VscodeAgents extends View {
       for (;;) {
         const c = String(await nextCommand()).split(/[.:]/).pop();
         const a = agents().find((x) => x.focused);
-        if (c === "settle" && a && inbox().finished[a.address]) settle([a.address]);
+        if (c === "settle" && a && inboxView([a]).finished.length) settle([a.address]);
         cx.notify();
       }
     });
@@ -178,11 +160,11 @@ export default class VscodeAgents extends View {
   }
 
   // Draws agent a as a card in section kind ("needs" or "finished"): where it is, how long it has
-  // been blocked or finished (from box, the inbox record), its name, then the question it waits
+  // been blocked or finished (v.when, from the Inbox view), its name, then the question it waits
   // on or a Settle button. Clicking the card focuses its pane.
-  card(a, kind, box, tabs, t) {
+  card(a, kind, v, tabs, t) {
     const edge = kind === "needs" ? t.blocked : t.done;
-    const when = kind === "needs" ? box.since[a.address] : box.finished[a.address];
+    const when = v.when(a);
     const sub = kind === "needs"
       // Up to two lines of the question: wraps, then clips at two lines' height.
       ? h_flex().gap(5).items_start().min_w(0)
@@ -213,7 +195,7 @@ export default class VscodeAgents extends View {
 
   // Draws agent a as one line in section kind ("working" or "settled"): a spinner or a hollow dot,
   // where it is, its name and the time since its status last changed.
-  row(a, kind, box, tabs, t) {
+  row(a, kind, v, tabs, t) {
     return h_flex().id(`row-${a.address}`).h(24).px(12).gap(7).items_center().cursor_pointer()
       .bg(a.focused ? t.selected : t.background).hover((s) => s.bg(t.hover))
       .on_click(() => run("pane.focus", { pane: a.pane }))
@@ -222,7 +204,7 @@ export default class VscodeAgents extends View {
         : div().size(7).rounded(4).border(1).border_color(t.dim))
       .child(div().size(8).rounded(2).bg(spaceColor(t, { id: a.space, name: a.space_name })).flex_none())
       .child(div().flex_1().truncate().text_size(12.5).text_color(t.muted).child(`${this.where(a)} · ${this.label(a, tabs)}`))
-      .child(div().text_size(11).text_color(t.dim).child(ago(box.since[a.address])));
+      .child(div().text_size(11).text_color(t.dim).child(ago(v.when(a))));
   }
 
   // Draws the AGENTS title with the space filter button and, while picking, the dropdown of
@@ -242,10 +224,9 @@ export default class VscodeAgents extends View {
     if (!this.picking) return head;
     // The one place for spaces: pick one to show its agents and go there, right-click for
     // Herdr's space menu, or make a new one.
-    const box = inbox();
     const counts = (id) => {
-      const here = agents().filter((a) => a.space === id);
-      return { blocked: here.filter((a) => a.status === "blocked").length, finished: here.filter((a) => a.status !== "blocked" && box.finished[a.address]).length };
+      const v = inboxView(agents().filter((a) => a.space === id));
+      return { blocked: v.needs.length, finished: v.finished.length };
     };
     const dot = (n, color) => h_flex().gap(3).items_center().text_size(11).text_color(t.muted).child(div().size(6).rounded(3).bg(color)).child(String(n));
     const pick = (space) => {
@@ -296,7 +277,6 @@ export default class VscodeAgents extends View {
   // follow the same order, folded sections included. Runs again on every live-data change.
   render() {
     const t = theme();
-    const box = inbox();
     // A filter for a space that's gone shows everything again. A one-space filter follows the
     // space you're in (switched by key or by an agent elsewhere), so the list and the panes
     // always match; "All spaces" stays put.
@@ -306,25 +286,21 @@ export default class VscodeAgents extends View {
     const tabs = new Map(spaces().flatMap((s) => s.tabs).map((tab) => [tab.id, tab]));
     const all = agents();
     const list = this.filter ? all.filter((a) => a.space === this.filter) : all;
-    // Pinned first, then the most recent change first.
-    const order = (stamps) => (x, y) => (y.pinned - x.pinned) || ((stamps[y.address] ?? 0) - (stamps[x.address] ?? 0));
-
-    const needs = list.filter((a) => a.status === "blocked").sort(order(box.since));
-    const finished = list.filter((a) => a.status !== "blocked" && box.finished[a.address]).sort(order(box.finished));
-    const working = list.filter((a) => a.status === "working" && !box.finished[a.address]).sort(order(box.since));
-    const shown = new Set([...needs, ...finished, ...working].map((a) => a.address));
-    const settled = list.filter((a) => !shown.has(a.address)).sort(order(box.since));
+    // The four sections, each already in its order: Needs you and Finished are queues (pinned,
+    // then waiting longest first), Working and Settled newest change first.
+    const v = inboxView(list);
+    const { needs, finished, working, settled } = v;
     setAgentOrder([...needs, ...finished, ...working, ...settled].map((a) => a.address));
 
     const body = v_flex().id("agents-list").flex_1().min_h(0).overflow_y_scrollbar()
       .child(this.section("needs", "Needs you", needs, t))
-      .when(this.open.needs, (el) => el.children(needs.map((a) => this.card(a, "needs", box, tabs, t))))
+      .when(this.open.needs, (el) => el.children(needs.map((a) => this.card(a, "needs", v, tabs, t))))
       .child(this.section("finished", "Finished", finished, t))
-      .when(this.open.finished, (el) => el.children(finished.map((a) => this.card(a, "finished", box, tabs, t))))
+      .when(this.open.finished, (el) => el.children(finished.map((a) => this.card(a, "finished", v, tabs, t))))
       .child(this.section("working", "Working", working, t))
-      .when(this.open.working, (el) => el.children(working.map((a) => this.row(a, "working", box, tabs, t))))
+      .when(this.open.working, (el) => el.children(working.map((a) => this.row(a, "working", v, tabs, t))))
       .child(this.section("settled", "Settled", settled, t))
-      .when(this.open.settled, (el) => el.children(settled.map((a) => this.row(a, "settled", box, tabs, t))));
+      .when(this.open.settled, (el) => el.children(settled.map((a) => this.row(a, "settled", v, tabs, t))));
 
     return v_flex().size_full().bg(t.background).child(this.header(t)).child(body);
   }

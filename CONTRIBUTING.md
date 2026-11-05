@@ -46,8 +46,8 @@ Herdr reloads its home folder live, so test there, not in your clone:
 Don't commit `*.d.ts` or `jsconfig.json`: Herdr writes them into every mod folder.
 
 **Shared modules.** Herdr mods can't import from each other, so a file that several mods need
-(`context.js`, `focus.js`, `git-read.js`, `layout.js`, `clipboard.js`) sits in each of them as an
-identical copy; its first comment says so. Change every copy the same way. A pull request that
+(`context.js`, `focus.js`, `git-read.js`, `layout.js`, `clipboard.js`, `inbox.js`,
+`inbox-rules.js`) sits in each of them as an identical copy; its first comment says so. Change every copy the same way. A pull request that
 changes only one copy is fine too: when it's merged, the other copies are updated from it, as
 long as no two copies were changed differently.
 

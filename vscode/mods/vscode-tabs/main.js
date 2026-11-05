@@ -2,7 +2,8 @@
 // of the active one, close on the active/hovered tab, drag to reorder, double-click to rename.
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, agents, run, openOverlay, theme, shared } from "herdr";
+import { spaces, panes, agents, run, openOverlay, theme } from "herdr";
+import { inboxView } from "./inbox.js";
 
 // Path of this mod's own SVG icon called name.
 const ICON = (name) => `mods/vscode-tabs/${name}.svg`;
@@ -24,16 +25,15 @@ export default class Tabs extends View {
     return (list.find((p) => p.program?.agent) ?? list[0])?.program ?? null;
   }
 
-  // The tab's status. In vscode-inbox, "done" means finished and not yet settled (the
-  // shared "vscode.inbox" record vscode-statusbar keeps), not Herdr's done, which clears on a
-  // glance; same priority as Herdr's: blocked > done > working > idle.
+  // The tab's status. With the Inbox on (inbox.js), "done" means finished and not yet settled,
+  // not Herdr's done, which clears on a glance; same priority as Herdr's: blocked > done >
+  // working > idle. With it off, Herdr's own status.
   status(c) {
-    if (shared("layout") !== "vscode-inbox") return c.status;
-    const finished = shared("vscode.inbox")?.finished ?? {};
-    const here = agents().filter((a) => a.tab === c.id);
-    if (here.some((a) => a.status === "blocked")) return "blocked";
-    if (here.some((a) => finished[a.address])) return "done";
-    if (here.some((a) => a.status === "working")) return "working";
+    const v = inboxView(agents().filter((a) => a.tab === c.id));
+    if (!v.on) return c.status;
+    if (v.needs.length) return "blocked";
+    if (v.finished.length) return "done";
+    if (v.working.length) return "working";
     return "idle";
   }
 

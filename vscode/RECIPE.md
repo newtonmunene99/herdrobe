@@ -135,11 +135,11 @@ Mods in this folder:
 - `vscode-tabs`: `spaces()`, `panes()` (program icons); `tab.select`, `tab.move`, `tab.rename`,
   `tab.close`, `tab.next`/`tab.prev`, `pane.split`; opens the shipped `menu` and `new-menu` mods
   as popups.
-- `vscode-statusbar`: `agents()`, `focused()`, `shared("layout")`; `agent.next`,
+- `vscode-statusbar`: `agents()`, `focused()`, `shared("layout")`; `agent.next`, `pane.focus`,
   `app.settings {section: "machines"}`, `layout.switch {name}` from its layout popup (a second
   copy of itself, props `{layoutMenu: true}`); takes `history` and `layouts` from
   `nextCommand()`; runs `naming.js`'s `nameSpaces()` every 2 s (a no-op here). It also keeps the
-  Finished record for VS Code · Inbox (shared `vscode.inbox`, below) in both layouts.
+  Inbox's record (`inbox.js`, below) in both layouts.
 - `vscode-files` (cloned from Herdr's `files`): `exec` (`sh`, `git status`, PowerShell on
   Windows), `readTextFile`, `watchFolder`, `hc get` (to find a running ttt), `pane.split` /
   `tab.new` with `argv: ["ttt", "--new-window", path]`.
@@ -240,7 +240,9 @@ Swatches use the same colours as Herdr's own space picker.
 - **Agent statuses**: working = spinner row (and tab spinner); blocked = Needs you card with the
   question (red tab dot); finished = Finished card (green tab dot); idle = Settled row (no dot).
 - **Cards and rows**: click focuses the agent's pane (switching space and tab); the right
-  sidebar follows. Order: pinned first, then newest change; `agent.next/prev` follow the list.
+  sidebar follows. Order: pinned first, then Needs you and Finished oldest first (whoever has
+  waited longest on top), Working and Settled newest change first; `agent.next/prev` follow the
+  list, and the status bar's "N finished" goes to the top Finished card.
 - **Space dropdown**: All spaces shows everything; a space filters the list **and switches to
   it**; while one space is picked, switching spaces another way moves the filter along.
   Right-click a space for Herdr's own menu (Rename, Close, worktrees).
@@ -261,10 +263,16 @@ secondary     column 360px (260–720), radius 8, border, background   (after "w
    └─ history  block, title "History" → vscode-history, props { follow: true }
 ```
 
-- **Shared state `vscode.inbox`** `{prev, since, finished, settled}` (address → status or ms),
-  written by `vscode-statusbar` on every render and a 1 s look-to-settle check, because the
-  status bar is on screen in both VS Code layouts from launch. `vscode-agents` reads it and
-  writes settles; tabs and activity bar read it, only when `shared("layout") === "vscode-inbox"`.
+- **The Inbox, `inbox.js` + `inbox-rules.js`** (identical copies in the agents, status bar, tabs
+  and activity bar mods). `inbox-rules.js` is the rules as pure steps over the record in shared
+  `vscode.inbox`, `{prev, since, finished, settled}` (address → status or ms); `inbox.js` wraps
+  them with `shared`, `agents()`, `terminals()`, `window()` and `layout()`. Mods call
+  `inboxView(list)` → `{on, needs, finished, working, settled, when(a)}`, already split and
+  sorted, and `settle(addresses)`. `vscode-statusbar` calls `trackInbox()` on every render and
+  `lookTick()` every second, because it is on screen in both VS Code layouts from launch. The
+  Inbox is **on when the shown layout contains `vscode-agents`** (`hasMod` in `layout.js`), so a
+  clone of this layout keeps Finished and plain VS Code (Herdr's `agents`) shows Herdr's own
+  status; off, `finished` is empty.
 - **`vscode-agents`**: `agents()`, `spaces()`, `panes()`, `setAgentOrder`, `hc read <t> --lines 40`
   every 5 s for blocked agents only, `pane.focus`, `space.select`, `space.new {folder?}`,
   `pickFolder`, the shipped `menu` (`{tab: "space", target: {id}}`) and `worktree`
