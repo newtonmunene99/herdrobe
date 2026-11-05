@@ -5,25 +5,14 @@
 // otherwise have its unrelated work swept up by a repo-wide `git add -A`.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, run, layout } from "herdr";
+import { spaces, exec, readTextFile, watchFolder, theme, settings, run, layout } from "herdr";
 import { contextFor, openHistory, ROOT_IDS } from "./context.js";
+import { inTabStrip } from "./layout.js";
+import { focusPlace } from "./focus.js";
+import { READ, statusLetter, diffRows } from "./git-read.js";
 
-// In vscode-inbox this panel is a tab of the right sidebar ("secondary-body"), whose tab strip
-// already says Changes | History, so the panel drops its own title and History button there.
-function inTabStrip() {
-  const find = (node) => node?.id === "secondary-body" ? node : (node?.children ?? []).map(find).find(Boolean) ?? null;
-  return (find(layout())?.children ?? []).some((c) => c.content?.mod === "vscode-changes");
-}
-
-// Where the panel looks: the focused pane's live folder and the machine it is on (null here).
-// A focused layout terminal block has no pane, so its machine comes from its `machine/tN` address.
-// Mirrors location() in vscode-files, minus the space id.
-function location() {
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
-}
+// Where the panel looks: the focused pane's live folder and its machine (see focusPlace).
+const location = focusPlace;
 // Workspace contexts describe local checkouts; a remote space keeps the single whole-repo section.
 function sectionsFor({ cwd, on }) {
   const ctx = on ? null : contextFor(cwd);
@@ -36,27 +25,10 @@ function key() {
   const loc = location();
   return JSON.stringify({ on: loc.on, dirs: sectionsFor(loc).map((s) => s.dir) });
 }
-// Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
-// the folder watch would see it, and every refresh would start the next one.
-const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 // The most changed files listed per section; past it the section says so (`limited`).
 const LIMIT = 1000;
 // Counts the lines in `text`; a trailing newline does not start another line.
 const countLines = (text) => text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;
-
-// Numbers each diff line once, so a frame only draws the rows on screen.
-function diffRows(lines) {
-  let old = 0, next = 0;
-  return lines.map((line) => {
-    const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
-    if (match) { old = +match[1]; next = +match[2]; return { kind: "@", text: line }; }
-    const kind = line[0];
-    if (kind === "-") return { kind, number: old++, text: line.slice(1) || " " };
-    if (kind === "+") return { kind, number: next++, text: line.slice(1) || " " };
-    if (kind === " ") { old++; return { kind, number: next++, text: line.slice(1) || " " }; }
-    return { kind: "", text: line };
-  });
-}
 
 // One section's state from git. `files` paths are repo-relative; `prefix` is the section
 // folder inside its repo ("" for a whole-repo section).
@@ -98,14 +70,6 @@ function numstats(results) {
     }
   }
   return stats;
-}
-
-// One letter for a porcelain XY code: U conflicted, D deleted, A added or untracked, M modified.
-function statusLetter(xy) {
-  if (xy.includes("U") || xy === "AA" || xy === "DD") return "U";
-  if (xy.includes("D")) return "D";
-  if (xy === "??" || xy.includes("A")) return "A";
-  return "M";
 }
 
 // The section's files from `git status --porcelain=v1 -z`, up to LIMIT; `others` counts changes
@@ -365,7 +329,7 @@ export default class Changes extends View {
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme(), shown = this.visible(), files = shown.flatMap((sec) => this.state[sec.id].files);
     const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
-    const tabbed = inTabStrip();
+    const tabbed = inTabStrip(layout(), "vscode-changes");
     return v_flex().id("changes").size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.typing) { this.typing = null; this.handle.focus(); cx.stop_propagation(); cx.notify(); }

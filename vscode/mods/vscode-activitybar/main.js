@@ -6,6 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex } from "gpui-base";
 import { theme, run, layout, agents, updates, shared, nextCommand } from "herdr";
+import { findNode as find } from "./layout.js";
 
 // The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-activitybar/${name}.svg`;
@@ -19,16 +20,6 @@ const VIEWS = [
   // No icon of its own: reached by key, or by the right sidebar's History tab.
   { id: "history", key: "history", icon: null, label: "History" },
 ];
-
-// Finds the layout node with this id under `node`, or null.
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const child of node?.children ?? []) {
-    const found = find(child, id);
-    if (found) return found;
-  }
-  return null;
-}
 
 // Which stack holds this view in the current layout: the left sidebar, the right one, or none.
 function placeOf(id) {

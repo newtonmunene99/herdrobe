@@ -4,9 +4,11 @@
 // nameSpaces() on a timer; the published naming.js does nothing.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { spaces, agents, panes, terminals, focused, theme, run, shared, setShared, exec, notify, nextCommand, window, props, layouts, openOverlay, closeOverlay } from "herdr";
+import { spaces, agents, terminals, theme, run, shared, setShared, nextCommand, window, props, layouts, openOverlay, closeOverlay } from "herdr";
 import { contextFor, openHistory } from "./context.js";
 import { nameSpaces } from "./naming.js";
+import { focusPlace } from "./focus.js";
+import { copy } from "./clipboard.js";
 
 // The inbox: which agents finished and haven't been settled. Herdr turns "done" into "idle"
 // the moment anyone looks, so a glance makes a finished agent look handled; this keeps it until
@@ -97,12 +99,11 @@ function settleLooked() {
   looking = null;
 }
 
-// Contexts describe checkouts on this computer, so a space on another machine never has one.
+// The active space and the focused folder's workspace context. Contexts describe checkouts on
+// this computer, so a folder on another machine (see focusPlace) never has one.
 function contextHere() {
-  const space = spaces().find((s) => s.active), f = focused();
-  if (!space || space.machine) return { space, ctx: null };
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  return { space, ctx: contextFor(pane?.cwd || f?.cwd || space.folder) };
+  const place = focusPlace(), space = spaces().find((s) => s.active);
+  return { space, ctx: place.on ? null : contextFor(place.cwd) };
 }
 
 // The path of one of this mod's icons, as image() and svg() want it.
@@ -144,14 +145,6 @@ export default class StatusBar extends View {
     nameSpaces();
   }
 
-  // Copies `text` to the clipboard and says so in a toast titled `title`. It uses pbcopy, so it
-  // works on macOS only; elsewhere the toast reports the failure.
-  copy(text, title) {
-    exec("sh", ["-c", 'printf %s "$1" | pbcopy', "copy", text])
-      .then((r) => notify(r.code === 0 ? { title: title ?? "Copied", body: text, timeout: 2000 } : { title: "Copy failed", body: r.stderr, level: "error" }))
-      .catch((e) => notify({ title: "Copy failed", body: String(e), level: "error" }));
-  }
-
   // One status bar entry; it is clickable and highlights on hover only when given an action.
   item(id, children, tip, action) {
     const t = theme();
@@ -189,7 +182,7 @@ export default class StatusBar extends View {
       .when(Boolean(badge), (el) => el.child(this.item("context", [
         div().text_color(t.accent).child(badge.mark ?? ""),
         div().child(badge.text),
-      ], badge.tooltip, badge.copy ? () => this.copy(badge.copy, badge.copied) : null)))
+      ], badge.tooltip, badge.copy ? () => copy(badge.copy, badge.copied) : null)))
       .child(this.item("agents", [
         svg(ICON("bot")).size(13),
         div().child(`${list.length}`),

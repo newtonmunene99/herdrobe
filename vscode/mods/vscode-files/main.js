@@ -4,8 +4,10 @@
 // Clicking a file opens it in ttt (see openInTtt); remote spaces keep the in-panel preview.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, hc, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
+import { panes, focused, exec, hc, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
 import { contextFor } from "./context.js";
+import { focusPlace } from "./focus.js";
+import { READ, statusLetter } from "./git-read.js";
 
 // Hands a file to one specific running ttt. ttt listens for this only with "reuseWindow": true in
 // ~/.config/ttt/settings.json, on a socket in its private per-user temp folder whose name ends in
@@ -33,15 +35,9 @@ async function openInTtt(path) {
   else run("tab.new", { argv });
 }
 
-// Where the panel looks: the focused pane's live folder, the machine it is on (null here) and the
-// active space. A focused layout terminal block has no pane, so its machine comes from its
-// `machine/tN` address. Mirrors location() in vscode-changes.
-function location() {
-  const space = spaces().find(s => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
-}
+// Where the panel looks: the focused pane's live folder, its machine and the active space (see
+// focusPlace).
+const location = focusPlace;
 
 // Workspace contexts describe local checkouts; a remote space keeps the single-folder view.
 function rootsFor({ cwd, on }) {
@@ -90,13 +86,13 @@ async function changeMarks(dir, on) {
   const prefix = await exec("git", ["rev-parse", "--show-prefix"], { cwd: dir, on }).catch(() => null);
   if (prefix?.code !== 0) return {};
   const p = prefix.stdout.trim();
-  // Writes nothing under .git (index lock, fsmonitor cookie): the folder watch would refresh again.
-  const status = await exec("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "."], { cwd: dir, on }).catch(() => null);
+  // READ writes nothing under .git: the folder watch would refresh again.
+  const status = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "."], { cwd: dir, on }).catch(() => null);
   const marks = {};
   if (status?.code === 0) for (const entry of status.stdout.split("\0").filter(Boolean).slice(0, TOTAL)) {
     const xy = entry.slice(0, 2), path = entry.slice(3);
     if (!path.startsWith(p)) continue;
-    marks[path.slice(p.length)] = xy === "??" || xy.includes("A") ? "A" : xy.includes("U") ? "U" : xy.includes("D") ? "D" : "M";
+    marks[path.slice(p.length)] = statusLetter(xy);
   }
   return marks;
 }

@@ -14,8 +14,12 @@
 // shared state.
 import { View, div, uniform_list, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
-import { exec, theme, settings, run, props, notify, openOverlay, closeOverlay, shared, setShared, focused, panes, spaces, layout as appLayout } from "herdr";
+import { exec, theme, settings, run, props, openOverlay, closeOverlay, shared, setShared, layout as appLayout } from "herdr";
 import { contextFor } from "./context.js";
+import { inTabStrip } from "./layout.js";
+import { focusPlace } from "./focus.js";
+import { READ, diffRows } from "./git-read.js";
+import { copy } from "./clipboard.js";
 
 // Narrower than this (points), the details panel stacks its two halves and the header controls
 // wrap: side by side, the 420pt file list needs about as much again for the message and a full
@@ -28,25 +32,6 @@ const DESC_MIN = 360;
 // The narrowest the graph column gets, so its "Graph" header fits even over a single lane.
 const GRAPH_MIN = 48;
 
-// appLayout is Herdr's layout tree (this file's own layout() lays out the commit graph).
-function findNode(node, id) {
-  return node?.id === id ? node : (node?.children ?? []).map((c) => findNode(c, id)).find(Boolean) ?? null;
-}
-
-// In vscode-inbox this view is a tab of the right sidebar ("secondary-body"), whose tab strip
-// already says History, so the header drops its own title there.
-function inTabStrip() {
-  return (findNode(appLayout(), "secondary-body")?.children ?? []).some((c) => c.content?.mod === "vscode-history");
-}
-
-// Follow mode: where the focused pane is. A space on another machine has no local checkout.
-function focusPlace() {
-  const f = focused();
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  const space = spaces().find((s) => s.active);
-  return { cwd: pane?.cwd || f?.cwd || space?.folder || null, remote: Boolean(space?.machine) };
-}
-
 // Commits read per page; the "Load more" row at the end of the list adds another page.
 const PAGE = 300;
 // Graph geometry in px: ROW is a commit row's height (the virtual list needs every row the same),
@@ -58,8 +43,6 @@ const CHANGED = "vscode-history.changed";
 // Field and record separators for git --format strings: ASCII unit and record separators, which
 // never appear in names or subjects, so splitting on them is safe.
 const SEP = "\x1f", END = "\x1e";
-// Reads write nothing under .git, so polling never disturbs the repo or an agent's git.
-const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 // Runs a read-only git command in `dir`; resolves with exec's result, rejects if git can't start.
 const git = (dir, args) => exec("git", [...READ, ...args], { cwd: dir });
 // English month abbreviations for when(), so dates read the same whatever the system locale.
@@ -69,15 +52,6 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 function when(seconds) {
   const d = new Date(seconds * 1000), p = (n) => String(n).padStart(2, "0");
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-// Copies `text` to the clipboard and confirms with a toast naming `what`. It uses pbcopy, so it
-// works on macOS only; elsewhere it shows a "Copy failed" toast. The text goes in as $1, never
-// through shell quoting. vscode-statusbar has the same helper.
-function copy(text, what) {
-  exec("sh", ["-c", 'printf %s "$1" | pbcopy', "copy", text])
-    .then((r) => notify(r.code === 0 ? { title: `Copied ${what}`, body: text, timeout: 2000 } : { title: "Copy failed", body: r.stderr, level: "error" }))
-    .catch((e) => notify({ title: "Copy failed", body: String(e), level: "error" }));
 }
 
 // "HEAD -> master, origin/master, tag: x" as badges. origin/HEAD only repeats a branch.
@@ -147,20 +121,6 @@ function layout(commits) {
   return width;
 }
 
-// Numbers each diff line once, as vscode-changes does.
-function diffRows(lines) {
-  let old = 0, next = 0;
-  return lines.map((line) => {
-    const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
-    if (match) { old = +match[1]; next = +match[2]; return { kind: "@", text: line }; }
-    const kind = line[0];
-    if (kind === "-") return { kind, number: old++, text: line.slice(1) || " " };
-    if (kind === "+") return { kind, number: next++, text: line.slice(1) || " " };
-    if (kind === " ") { old++; return { kind, number: next++, text: line.slice(1) || " " }; }
-    return { kind: "", text: line };
-  });
-}
-
 // The History tab, and also its checkout and branch dialogs: a copy opened as an overlay is a
 // dialog (initDialog, renderDialog), any other copy is the tab.
 export default class History extends View {
@@ -186,7 +146,7 @@ export default class History extends View {
   // Re-derives the repos when the focused pane moves to another folder: a workspace context's
   // History repos (as cmd-shift-h shows), anything else its git root.
   followFocus(cx) {
-    const { cwd, remote } = focusPlace();
+    const { cwd, on } = focusPlace(), remote = Boolean(on);
     const key = `${remote}:${cwd}`;
     if (key === this.followKey) return;
     this.followKey = key;
@@ -460,14 +420,14 @@ export default class History extends View {
         .child(h_flex().flex_1().min_w(0).gap(4).flex_wrap().children(c.refs.map((r) => this.badge(r, t))))))
       .child(h_flex().gap(6).child(div().text_color(t.dim).child(d.parents.length > 1 ? "Parents" : "Parent"))
         .children(d.parents.map((p) => div().id(`parent-${p}`).font_family(mono).text_color(t.accent).cursor_pointer()
-          .on_click((_e, cx) => { const target = this.commits.find((x) => x.hash === p); if (target) this.toggle(target, cx); else copy(p, "parent hash"); })
+          .on_click((_e, cx) => { const target = this.commits.find((x) => x.hash === p); if (target) this.toggle(target, cx); else copy(p, "Copied parent hash"); })
           .child(p.slice(0, 10)))))
       .child(h_flex().gap(6).min_w(0).child(div().flex_none().text_color(t.dim).child("Author")).child(div().min_w(0).truncate().child(`${d.an} <${d.ae}> · ${when(d.at)}`)))
       .when(d.cn !== d.an || d.ct !== d.at, (e) => e.child(h_flex().gap(6).child(div().text_color(t.dim).child("Committer")).child(div().child(`${d.cn} · ${when(d.ct)}`))))
       .child(div().pt(6).text_size(12.5).child(d.body))
       .child(h_flex().pt(8).gap(6).flex_wrap()
-        .child(this.button(`copy-${c.hash}`, "Copy hash", () => copy(c.hash, "commit hash"), t))
-        .child(this.button(`subject-${c.hash}`, "Copy subject", () => copy(c.subject, "subject"), t))
+        .child(this.button(`copy-${c.hash}`, "Copy hash", () => copy(c.hash, "Copied commit hash"), t))
+        .child(this.button(`subject-${c.hash}`, "Copy subject", () => copy(c.subject, "Copied subject"), t))
         .child(this.button(`term-${c.hash}`, "Open in terminal", () => this.openTerminal(c), t))
         .children(locals.map((r) => this.button(`co-${c.hash}-${r.name}`, `Checkout ${r.name}`, () => this.openDialog("checkout", { target: r.name, detached: false }), t)))
         .child(this.button(`cod-${c.hash}`, "Checkout commit", () => this.openDialog("checkout", { target: c.hash, detached: true, short: c.hash.slice(0, 7) }), t))
@@ -518,7 +478,7 @@ export default class History extends View {
     if (this.dialog) return this.renderDialog(cx);
     const t = theme();
     if (this.follow) this.followFocus(cx); // renders run on focus changes: catch moves to another repo
-    const compact = this.compact(), tabbed = inTabStrip();
+    const compact = this.compact(), tabbed = inTabStrip(appLayout(), "vscode-history");
     if (shared(CHANGED) !== this.seen) { this.seen = shared(CHANGED); this.repoInfo = {}; this.load(cx); }
     const repo = this.repo(), info = this.repoInfo[this.repoId];
     const items = this.commits.map((c) => ({ key: c.hash, c }));

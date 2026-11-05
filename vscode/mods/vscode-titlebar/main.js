@@ -4,21 +4,12 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, spaces, layout, window } from "herdr";
+import { findNode } from "./layout.js";
 
 // The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-titlebar/${name}.svg`;
 // Stops a press so a control's click doesn't also start dragging the window.
 const stop = (_e, cx) => cx.stop_propagation();
-
-// Finds the layout node with this id under `node`, or null.
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const child of node?.children ?? []) {
-    const found = find(child, id);
-    if (found) return found;
-  }
-  return null;
-}
 
 // The title bar.
 export default class TitleBar extends View {
@@ -37,8 +28,8 @@ export default class TitleBar extends View {
     const w = window();
     const root = layout();
     const space = spaces().find((s) => s.active);
-    const sidebarOpen = !find(root, "sidebar")?.hidden;
-    const secondary = find(root, "secondary");
+    const sidebarOpen = !findNode(root, "sidebar")?.hidden;
+    const secondary = findNode(root, "secondary");
     const label = space ? `${space.name}${space.machine ? ` [${space.machine}]` : ""}` : "Herdr";
     return h_flex().size_full().px(8).items_center().text_size(12)
       // Left: room for the macOS traffic lights; elsewhere nothing.
