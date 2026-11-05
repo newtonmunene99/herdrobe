@@ -7,7 +7,7 @@ import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { panes, focused, exec, hc, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
 import { contextFor } from "./context.js";
 import { focusPlace } from "./focus.js";
-import { READ, statusLetter } from "./git-read.js";
+import { READ, statusLetter, statusEntries } from "./git-read.js";
 
 // Hands a file to one specific running ttt. ttt listens for this only with "reuseWindow": true in
 // ~/.config/ttt/settings.json, on a socket in its private per-user temp folder whose name ends in
@@ -89,10 +89,8 @@ async function changeMarks(dir, on) {
   // READ writes nothing under .git: the folder watch would refresh again.
   const status = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "."], { cwd: dir, on }).catch(() => null);
   const marks = {};
-  if (status?.code === 0) for (const entry of status.stdout.split("\0").filter(Boolean).slice(0, TOTAL)) {
-    const xy = entry.slice(0, 2), path = entry.slice(3);
-    if (!path.startsWith(p)) continue;
-    marks[path.slice(p.length)] = statusLetter(xy);
+  if (status?.code === 0) for (const { xy, path } of statusEntries(status.stdout).slice(0, TOTAL)) {
+    if (path.startsWith(p)) marks[path.slice(p.length)] = statusLetter(xy);
   }
   return marks;
 }

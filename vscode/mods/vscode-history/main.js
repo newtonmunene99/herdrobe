@@ -18,7 +18,7 @@ import { exec, theme, settings, run, props, openOverlay, closeOverlay, shared, s
 import { contextFor } from "./context.js";
 import { inTabStrip } from "./layout.js";
 import { focusPlace } from "./focus.js";
-import { READ, diffRows } from "./git-read.js";
+import { READ, diffRows, numstatEntries } from "./git-read.js";
 import { copy } from "./clipboard.js";
 
 // Narrower than this (points), the details panel stacks its two halves and the header controls
@@ -130,7 +130,7 @@ export default class History extends View {
     const p = initial ?? props() ?? {};
     if (p.overlay) return this.initDialog(p, cx);
     // Opened without props (herdr-app check, or a stray mod.open): nothing to show yet.
-    this.p = { label: p.label ?? "", scopeLabel: p.scopeLabel, repos: p.repos ?? [], select: p.select, select_file: p.select_file };
+    this.p = { label: p.label ?? "", scopeLabel: p.scopeLabel, repos: p.repos ?? [] };
     this.repoId = this.p.repos[0]?.id;
     this.scope = "folder"; this.remote = true;
     this.limit = PAGE; this.commits = []; this.width = 1; this.more = false;
@@ -179,14 +179,6 @@ export default class History extends View {
   // The selected repo entry from props, or undefined when there is none.
   repo() { return this.p.repos.find((r) => r.id === this.repoId); }
 
-  // props.select (and select_file) open History on a commit, once.
-  selectRequested(cx) {
-    if (!this.p.select || this.selectedOnce) return;
-    this.selectedOnce = true;
-    const c = this.commits.find((x) => x.hash.startsWith(this.p.select));
-    if (c) this.toggle(c, cx, this.p.select_file);
-  }
-
   // Root and the folder's path inside it; null when the folder is missing (an optional root).
   async info(repo) {
     if (this.repoInfo[repo.id] !== undefined) return this.repoInfo[repo.id];
@@ -225,7 +217,6 @@ export default class History extends View {
         this.width = layout(this.commits);
         this.stamp = await this.refStamp(info.root);
         if (this.open && !this.commits.some((c) => c.hash === this.open)) { this.open = null; this.details = null; }
-        this.selectRequested(cx);
       } catch (e) { if (this.token === token) this.error = String(e.message ?? e); }
       finally { if (this.token === token) this.loading = false; cx.notify(); }
     });
@@ -255,10 +246,9 @@ export default class History extends View {
   }
 
   // Opens the details panel for commit `c`, or closes it when `c` is already open. It reads the
-  // full message, author and committer, and the changed files (only the folder's in folder scope);
-  // `file` (a path relative to the folder or the repo root) then opens that file's diff too.
+  // full message, author and committer, and the changed files (only the folder's in folder scope).
   // Results land on the details object this call made, so a later toggle simply replaces it.
-  toggle(c, cx, file) {
+  toggle(c, cx) {
     if (this.open === c.hash) { this.open = null; this.details = null; cx.notify(); return; }
     this.open = c.hash; this.details = { hash: c.hash, loading: true };
     const info = this.repoInfo[this.repoId], scoped = this.scope === "folder" && info.prefix, details = this.details;
@@ -267,14 +257,12 @@ export default class History extends View {
         const meta = await git(info.root, ["show", "-s", `--format=%P${SEP}%an${SEP}%ae${SEP}%at${SEP}%cn${SEP}%ct${SEP}%B`, c.hash]);
         const [parents, an, ae, at, cn, ct, body] = meta.stdout.split(SEP);
         // Merges list what they brought in relative to their first parent.
-        const stat = await git(info.root, ["diff-tree", "--no-commit-id", "-r", "--numstat", "--root", "-m", "--first-parent", c.hash, ...(scoped ? ["--", info.prefix] : [])]);
-        const files = stat.stdout.split("\n").filter(Boolean).map((l) => {
-          const [a, d, ...rest] = l.split("\t"), path = rest.join("\t");
-          return { path, short: scoped && path.startsWith(info.prefix + "/") ? path.slice(info.prefix.length + 1) : path, add: Number(a) || 0, del: Number(d) || 0, binary: a === "-" };
-        });
+        // -z: without it git quotes and escapes unusual names ("\344\270\255.txt"), which then
+        // show escaped and can't be opened.
+        const stat = await git(info.root, ["diff-tree", "--no-commit-id", "-r", "--numstat", "-z", "--root", "-m", "--first-parent", c.hash, ...(scoped ? ["--", info.prefix] : [])]);
+        const files = Object.entries(numstatEntries(stat.stdout)).map(([path, n]) =>
+          ({ path, short: scoped && path.startsWith(info.prefix + "/") ? path.slice(info.prefix.length + 1) : path, ...n }));
         Object.assign(details, { loading: false, parents: parents.trim().split(" ").filter(Boolean), an, ae, at: Number(at), cn, ct: Number(ct), body: body.trim(), files });
-        const pick = file && files.find((f) => f.short === file || f.path === file);
-        if (pick) this.showDiff(pick, cx);
       } catch (e) { details.loading = false; details.error = String(e.message ?? e); }
       cx.notify();
     });
