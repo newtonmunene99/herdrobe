@@ -18,8 +18,9 @@ import { exec, theme, settings, run, props, notify, openOverlay, closeOverlay, s
 import { contextFor } from "./context.js";
 
 // Narrower than this (points), the details panel stacks its two halves and the header controls
-// wrap. Rows never drop columns: they scroll sideways instead (see rowWidth).
-const COMPACT = 700;
+// wrap: side by side, the 420pt file list needs about as much again for the message and a full
+// hash. Rows never drop columns: they scroll sideways instead (see rowWidth).
+const COMPACT = 900;
 // Column widths, points; the header in render and every row in row() use the same ones.
 const DATE_W = 150, AUTHOR_W = 170, HASH_W = 80;
 // The narrowest a commit's description column may get before the list scrolls sideways.
@@ -424,7 +425,10 @@ export default class History extends View {
       .child(this.graphCell(c, t))
       // Clipped: a run of branch and tag badges must not spill over the Date and Author columns.
       .child(h_flex().flex_1().min_w(0).overflow_hidden().gap(6).items_center().pr(12)
-        .children(c.refs.map((r) => this.badge(r, t)))
+        // One badge, then a "+N" chip for the rest (all of them are in the details panel), so a
+        // commit with many tags or branches keeps room for its subject.
+        .when(c.refs.length > 0, (e) => e.child(this.badge(c.refs[0], t)))
+        .when(c.refs.length > 1, (e) => e.child(div().flex_none().h(18).px(5).flex().items_center().rounded(4).bg(t.raised).text_size(11).text_color(t.muted).child(`+${c.refs.length - 1}`)))
         .child(div().min_w(0).truncate().text_color(merge ? t.dim : t.foreground).child(c.subject)))
       .child(div().w(DATE_W).flex_none().truncate().text_color(t.muted).child(when(c.at)))
       .child(div().w(AUTHOR_W).flex_none().truncate().text_color(t.muted).pr(10).child(c.author))
@@ -448,12 +452,17 @@ export default class History extends View {
     const locals = c.refs.filter((r) => r.kind === "local" && !r.head);
     const mono = settings().font_family ?? "Menlo";
     const left = d.loading ? div().text_color(t.dim).child("Loading…") : d.error ? div().text_color(t.ansi1).child(d.error) : v_flex().gap(3).text_size(12)
-      .child(h_flex().gap(6).child(div().text_color(t.dim).child("Commit")).child(div().font_family(mono).child(c.hash)))
+      // Long single-line facts truncate rather than run under the file list beside them.
+      .child(h_flex().gap(6).min_w(0).child(div().flex_none().text_color(t.dim).child("Commit")).child(div().min_w(0).truncate().font_family(mono).child(c.hash)))
+      // Every branch and tag on the commit; rows show only the first and a "+N" chip.
+      .when(c.refs.length > 0, (e) => e.child(h_flex().gap(6).items_start()
+        .child(div().flex_none().text_color(t.dim).child(c.refs.length > 1 ? "Refs" : "Ref"))
+        .child(h_flex().flex_1().min_w(0).gap(4).flex_wrap().children(c.refs.map((r) => this.badge(r, t))))))
       .child(h_flex().gap(6).child(div().text_color(t.dim).child(d.parents.length > 1 ? "Parents" : "Parent"))
         .children(d.parents.map((p) => div().id(`parent-${p}`).font_family(mono).text_color(t.accent).cursor_pointer()
           .on_click((_e, cx) => { const target = this.commits.find((x) => x.hash === p); if (target) this.toggle(target, cx); else copy(p, "parent hash"); })
           .child(p.slice(0, 10)))))
-      .child(h_flex().gap(6).child(div().text_color(t.dim).child("Author")).child(div().child(`${d.an} <${d.ae}> · ${when(d.at)}`)))
+      .child(h_flex().gap(6).min_w(0).child(div().flex_none().text_color(t.dim).child("Author")).child(div().min_w(0).truncate().child(`${d.an} <${d.ae}> · ${when(d.at)}`)))
       .when(d.cn !== d.an || d.ct !== d.at, (e) => e.child(h_flex().gap(6).child(div().text_color(t.dim).child("Committer")).child(div().child(`${d.cn} · ${when(d.ct)}`))))
       .child(div().pt(6).text_size(12.5).child(d.body))
       .child(h_flex().pt(8).gap(6).flex_wrap()
