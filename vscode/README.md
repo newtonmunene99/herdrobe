@@ -37,7 +37,8 @@ merge `keys.json` into yours. Then pick one with `ctrl-shift-l` or Settings → 
   `brew install eugenioenko/ttt/ttt`, with `"reuseWindow": true` in
   `~/.config/ttt/settings.json` so clicks reuse one editor.
 
-**What the mods run:** `git` (status, diff, commit, push, log, checkout, branch), `sh`, `pbcopy`,
+**What the mods run:** `git` (status, diff, add, restore, clean, commit, push, log, checkout,
+branch), `sh`, `pbcopy`,
 `ttt` and `hc` (to read a waiting agent's question off its screen). Nothing reaches the network
 except `git push`, and only when you click Push.
 

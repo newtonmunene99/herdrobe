@@ -31,8 +31,9 @@ These icons are unmodified copies of icons shipped with Herdr's own mods
   vscode-titlebar/{panel-right,search}.svg
 - from "pane": vscode-tabs/{close,split-right}.svg
 
-vscode-activitybar/{bot,circle-user}.svg, vscode-statusbar/bot.svg and
-vscode-titlebar/panel-left.svg are from Lucide (https://lucide.dev).
+vscode-activitybar/{bot,circle-user}.svg, vscode-statusbar/bot.svg,
+vscode-changes/{plus,minus,undo-2,list,list-tree}.svg and vscode-titlebar/panel-left.svg are
+from Lucide (https://lucide.dev).
 
 Lucide icons are licensed under the ISC License, and a few derive from Feather
 (MIT): see LICENSE-lucide.txt. All other files in mods/, layouts/ and themes/

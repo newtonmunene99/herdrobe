@@ -86,9 +86,17 @@ Panels:
   refreshed when files change. Clicking a file opens it in **ttt**: in a
   ttt already running in the shown tab if there is one, else in a new ttt split to the right. A
   space on another machine shows a read-only preview in the panel instead.
-- **Changes**: uncommitted changes of the focused pane's repo, a diff for the selected file, a
-  commit message box, commit, a "Push ↑N" button while the branch is ahead (it never pulls),
-  and a History button.
+- **Changes**: uncommitted changes of the focused pane's repo in two groups, as in VS Code:
+  **STAGED** (only when something is) and **CHANGES**, each with its count, as a folder tree
+  (single-child folders joined, `mods/vscode-changes`; click a folder to fold it) or a flat
+  list (the toggle beside "N files", remembered). Hovering a row shows its buttons: **−**
+  unstages (Staged rows), **+** stages and **↶** discards (Changes rows), on a file, a folder or
+  a whole group. Discard always asks first in a dialog ("Discard changes in layouts? 1 file
+  reverted, 1 untracked file deleted. This can't be undone."); conflicted files can't be
+  discarded. A file staged and edited again is in both groups; clicking a Staged row shows what
+  the commit takes, a Changes row what isn't staged. **Commit** commits what is staged; with
+  nothing staged the button reads **Commit all** and commits everything shown. A "Push ↑N"
+  button shows while the branch is ahead (it never pulls), and a History button.
 - **History**: a tab with a Git Graph style list (curved lanes, branch and tag badges, date,
   author, hash) and a details panel docked under it for the clicked commit: message, changed
   files, diff, copy hash or subject, open the commit in a terminal, check out (refused with
@@ -97,7 +105,8 @@ Panels:
 **Workspace contexts.** Each of Files, Changes, the status bar and History asks
 `context.js` whether the focused folder has a workspace context. The published copy always says
 no, so they behave as described above everywhere. A personal copy can return extra folder roots
-(Files and Changes show one section each, and Changes commits only paths under each), History
+(Files and Changes show one section each, and Changes commits only paths under each: Commit
+refuses while something outside the section's folder is staged), History
 repos with a folder scope ("This folder" or its own label, beside "Whole repo") and tag
 prefixes, and a status bar badge that copies a value on click. The shape is documented at the
 top of `context.js`. Separately, the status bar calls `nameSpaces()` from `naming.js` every two
@@ -143,8 +152,13 @@ Mods in this folder:
 - `vscode-files` (cloned from Herdr's `files`): `exec` (`sh`, `git status`, PowerShell on
   Windows), `readTextFile`, `watchFolder`, `hc get` (to find a running ttt), `pane.split` /
   `tab.new` with `argv: ["ttt", "--new-window", path]`.
-- `vscode-changes` (cloned from Herdr's `changes`): `exec("git", …)` for status, diff, add,
-  commit and push; `watchFolder`.
+- `vscode-changes` (cloned from Herdr's `changes`): `exec("git", …)` for status, diff
+  (`--cached` for Staged rows), `add -A` (stage), `restore --staged` (unstage; `rm --cached` before
+  the first commit), `restore` and `clean -f` on the listed files (discard), commit and push;
+  `watchFolder`. `model.js` splits status into the two groups and builds the tree rows (pure);
+  `discard.js` is the confirm dialog, a second copy of the mod opened with props
+  `{dialog: "discard", title, repo, on, tracked, untracked}`, which sets shared
+  `vscode-changes.changed` after a discard so every Changes panel rescans.
 - `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch), a second copy of
   itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
   `{follow: true}` it shows the focused pane's repo instead (used by VS Code · Inbox).
@@ -187,6 +201,8 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
   with no system title bar.
 - Each activity bar icon shows its view; clicking the shown one hides the sidebar; `cmd-shift-e`
   and `cmd-shift-g` do the same.
+- In Changes, + on a file moves it to STAGED, − moves it back, ↶ asks and then reverts it, and
+  Commit with something staged commits only that file.
 - An agent going working → blocked → done changes its tab's slot from spinner to red dot to green
   dot, and the status bar and Agents badge count it.
 - Clicking a file in Files opens it in ttt beside the focused pane; clicking another reuses that ttt.

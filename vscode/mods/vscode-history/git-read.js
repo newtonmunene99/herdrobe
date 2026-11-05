@@ -17,6 +17,26 @@ export function statusLetter(xy) {
   return "M";
 }
 
+// The entries of `git status --porcelain=v1 -z --no-renames`: { xy, x, y, path }, x the index
+// (staged) letter and y the worktree one (" " for none, "?" for untracked). Without --no-renames
+// a rename's old path would follow as a field of its own and be read as an entry.
+export function statusEntries(stdout) {
+  return stdout.split("\0").filter(Boolean).map((e) => ({ xy: e.slice(0, 2), x: e[0], y: e[1], path: e.slice(3) }));
+}
+
+// Added and deleted lines per path, from `git diff --numstat -z` output (without renames):
+// { path: { add, del, binary } }, summed when a path appears more than once.
+export function numstatEntries(stdout) {
+  const stats = {};
+  for (const entry of stdout.split("\0")) {
+    const [a, d, ...parts] = entry.split("\t");
+    if (!parts.length) continue;
+    const path = parts.join("\t"), old = stats[path] ?? { add: 0, del: 0 };
+    stats[path] = { add: old.add + (Number(a) || 0), del: old.del + (Number(d) || 0), binary: a === "-" };
+  }
+  return stats;
+}
+
 // Numbers each line of a unified diff once: { kind: "@" | "-" | "+" | " " | "", number?, text }.
 // Hunk headers reset the counters; "-" lines carry the old line number, "+" and context lines the
 // new one. Empty lines become " " so a row never collapses.
