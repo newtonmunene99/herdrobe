@@ -78,8 +78,9 @@ Out of the box, Files and Changes behave like Herdr's own panels. If your projec
 structure worth showing (one feature spread over two repos, say), edit `context.js` in
 `vscode-files`, `vscode-changes`, `vscode-statusbar` and `vscode-history` (four identical
 copies): for a folder it can return extra folder roots for Files and Changes, the repos and a
-folder scope for History, a status bar badge, and a name for the space. The shape is documented
-at the top of the file.
+folder scope for History, and a status bar badge. The shape is documented at the top of the
+file. To have spaces named after your projects, replace `vscode-statusbar/naming.js`, which does
+nothing as published.
 
 ## Updating and removing
 

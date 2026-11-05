@@ -11,7 +11,6 @@
 //   history:   { label, scopeLabel, repos: [{ id, label, dir, tagPrefix }] } for History
 //   badge:     { mark, text, tooltip, copy } for the status bar (mark in the accent colour;
 //              click copies `copy` and says `copied`)
-//   spaceName: a name for a space whose terminals sit here (the status bar names unnamed spaces)
 // }
 
 // Every root id contextFor can return, so a mod can prepare per-root state up front

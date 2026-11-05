@@ -99,9 +99,9 @@ Panels:
 no, so they behave as described above everywhere. A personal copy can return extra folder roots
 (Files and Changes show one section each, and Changes commits only paths under each), History
 repos with a folder scope ("This folder" or its own label, beside "Whole repo") and tag
-prefixes, a status bar badge that copies a value on click, and a space name (the status bar then
-names unnamed local spaces after the context most of their terminals are in, and gives the name
-back to Herdr when none are). The shape is documented at the top of `context.js`.
+prefixes, and a status bar badge that copies a value on click. The shape is documented at the
+top of `context.js`. Separately, the status bar calls `nameSpaces()` from `naming.js` every two
+seconds; the published copy does nothing, and a personal one may name spaces.
 
 ## Built from
 
@@ -136,10 +136,10 @@ Mods in this folder:
   `tab.close`, `tab.next`/`tab.prev`, `pane.split`; opens the shipped `menu` and `new-menu` mods
   as popups.
 - `vscode-statusbar`: `agents()`, `focused()`, `shared("layout")`; `agent.next`,
-  `app.settings {section: "machines"}`, `space.rename`, `layout.switch {name}` from its layout
-  popup (a second copy of itself, props `{layoutMenu: true}`); takes `history` and `layouts` from
-  `nextCommand()`; keeps its own space names in `localStorage`. It also keeps the Finished record
-  for VS Code · Inbox (shared `vscode.inbox`, below) in both layouts.
+  `app.settings {section: "machines"}`, `layout.switch {name}` from its layout popup (a second
+  copy of itself, props `{layoutMenu: true}`); takes `history` and `layouts` from
+  `nextCommand()`; runs `naming.js`'s `nameSpaces()` every 2 s (a no-op here). It also keeps the
+  Finished record for VS Code · Inbox (shared `vscode.inbox`, below) in both layouts.
 - `vscode-files` (cloned from Herdr's `files`): `exec` (`sh`, `git status`, PowerShell on
   Windows), `readTextFile`, `watchFolder`, `hc get` (to find a running ttt), `pane.split` /
   `tab.new` with `argv: ["ttt", "--new-window", path]`.
@@ -150,6 +150,7 @@ Mods in this folder:
   `{follow: true}` it shows the focused pane's repo instead (used by VS Code · Inbox).
 - `context.js` (identical in files, changes, statusbar, history): the workspace-context hook;
   `contextFor(path)` returns null here, and `openHistory()` opens or selects a History tab.
+- `naming.js` (statusbar only): the space-naming hook; `nameSpaces()` does nothing here.
 
 Shipped Herdr mods it uses but does not include: `spaces`, `agents`, `pane`, `menu`, `new-menu`.
 
@@ -163,8 +164,8 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
 - **Files needs ttt** (`brew install eugenioenko/ttt/ttt`) with `"reuseWindow": true` in
   `~/.config/ttt/settings.json`. Without ttt every file click opens a pane that fails; without
   `reuseWindow`, every click opens a new ttt split.
-- **The status bar renames spaces** only when a personal `context.js` gives their folders a
-  space name; a space you named yourself is never touched.
+- **The status bar never renames spaces** with the published `naming.js`. A personal copy that
+  does should leave names the person set alone; an earlier version wiped dotted space names.
 - In VS Code, `cmd-shift-h` does nothing unless a workspace context provides History repos; the
   Changes panel's History button works in any repo.
 - Mods can't import outside their own folder, so `context.js` is four identical copies: change

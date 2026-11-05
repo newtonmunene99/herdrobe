@@ -1,11 +1,12 @@
 // VS Code-style status bar: a blue "remote" corner with the space's machine, then branch and
 // agents; the layout name on the right opens a picker of every layout. When context.js gives the
-// focused folder a workspace context, it also shows that context's badge, and keeps unnamed
-// spaces named after the context most of their terminals are in.
+// focused folder a workspace context, it also shows that context's badge. It runs naming.js's
+// nameSpaces() on a timer; the published naming.js does nothing.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { spaces, agents, panes, terminals, focused, theme, run, shared, setShared, exec, notify, nextCommand, window, props, layouts, openOverlay, closeOverlay } from "herdr";
 import { contextFor, openHistory } from "./context.js";
+import { nameSpaces } from "./naming.js";
 
 // The inbox: which agents finished and haven't been settled. Herdr turns "done" into "idle"
 // the moment anyone looks, so a glance makes a finished agent look handled; this keeps it until
@@ -96,42 +97,6 @@ function settleLooked() {
   looking = null;
 }
 
-// The names this mod gave spaces, { spaceId: name }. A space whose name differs from its entry
-// was renamed by the person and is never touched again. Losing this record only freezes names.
-const OWN = "spaceNames:v1";
-// Reads the record: null when there is none yet (nameSpaces then adopts LOOKS_OURS names), and
-// {} when it can't be read.
-function loadOwn() {
-  try {
-    const raw = localStorage.getItem(OWN);
-    // Herdr's storage answers a missing key with undefined, not a browser's null.
-    return raw == null ? null : JSON.parse(raw);
-  } catch { return {}; }
-}
-// Writes the record; a failed write is ignored.
-function saveOwn(own) {
-  try { localStorage.setItem(OWN, JSON.stringify(own)); } catch { /* names just freeze */ }
-}
-// Before this record existed the mod renamed spaces once, to dotted names like these; adopt them
-// so they keep following their context too.
-const LOOKS_OURS = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/;
-
-// The context name (contextFor().spaceName) most of the space's terminals are in, by each pane's
-// live folder; the first terminal breaks a tie and terminals with no context do not count.
-function spaceContextName(space, byTab) {
-  const counts = new Map();
-  let first = null;
-  for (const tab of space.tabs) for (const pane of byTab.get(tab.id) ?? []) {
-    const name = contextFor(pane.cwd)?.spaceName;
-    if (!name) continue;
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-    first ??= name;
-  }
-  let best = null, most = 0;
-  for (const [name, n] of counts) if (n > most || (n === most && name === first)) { best = name; most = n; }
-  return best;
-}
-
 // Contexts describe checkouts on this computer, so a space on another machine never has one.
 function contextHere() {
   const space = spaces().find((s) => s.active), f = focused();
@@ -172,54 +137,11 @@ export default class StatusBar extends View {
         if (c === "layouts") openLayoutMenu();
       }
     });
-    // Each rename is tried once per session: a refused one must not retry every tick.
-    this.tried = new Set();
-    cx.timer.every(2000, () => this.nameSpaces());
+    // Space naming lives in naming.js (a no-op in the published copy); it runs every 2000 ms.
+    cx.timer.every(2000, () => nameSpaces());
     // Settles a finished agent once it has been looked at (see settleLooked): a cheap check.
     cx.timer.every(1000, () => settleLooked());
-    this.nameSpaces();
-  }
-
-  // Names every space after its context (see renameSpace) and saves the names this mod gave.
-  // Runs every 2000 ms; it also drops entries of spaces that are gone.
-  nameSpaces() {
-    const all = spaces();
-    let own = loadOwn(), changed = false;
-    if (own === null) {
-      own = Object.fromEntries(all.filter((s) => s.named && LOOKS_OURS.test(s.name)).map((s) => [s.id, s.name]));
-      changed = true;
-    }
-    const byTab = new Map();
-    for (const pane of panes()) byTab.set(pane.tab, [...(byTab.get(pane.tab) ?? []), pane]);
-    const live = new Set(all.map((s) => s.id));
-    for (const id of Object.keys(own)) if (!live.has(id)) { delete own[id]; changed = true; }
-
-    for (const space of all) if (this.renameSpace(space, own, byTab)) changed = true;
-    if (changed) saveOwn(own);
-  }
-
-  // Names one space after its context, or hands the name back to Herdr when it has none left.
-  // Returns true when `own` (the names this mod gave) changed.
-  renameSpace(space, own, byTab) {
-    // Contexts are local checkouts; a remote space keeps Herdr's naming.
-    if (space.machine) return false;
-    const mine = own[space.id];
-    // Renamed by the person: never touched again.
-    if (space.named && space.name !== mine) {
-      if (mine === undefined) return false;
-      delete own[space.id];
-      return true;
-    }
-    const want = spaceContextName(space, byTab);
-    // No terminals in a context left: "" hands the name back to Herdr, which follows the folder.
-    const next = want ?? (mine !== undefined ? "" : null);
-    if (next === null || (want && space.named && space.name === want)) return false;
-    const attempt = `${space.id}:${next}`;
-    if (this.tried.has(attempt)) return false;
-    this.tried.add(attempt);
-    run("space.rename", { id: space.id, name: next });
-    if (want) own[space.id] = want; else delete own[space.id];
-    return true;
+    nameSpaces();
   }
 
   // Copies `text` to the clipboard and says so in a toast titled `title`. It uses pbcopy, so it
