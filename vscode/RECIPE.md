@@ -93,14 +93,26 @@ Panels:
   unstages (Staged rows), **+** stages and **↶** discards (Changes rows), on a file, a folder or
   a whole group. Discard always asks first in a dialog ("Discard changes in layouts? 1 file
   reverted, 1 untracked file deleted. This can't be undone."); conflicted files can't be
-  discarded. A file staged and edited again is in both groups; clicking a Staged row shows what
-  the commit takes, a Changes row what isn't staged. **Commit** commits what is staged; with
+  discarded. A file staged and edited again is in both groups. Clicking a row opens its diff in
+  the **Diff tab** (below): a Staged row what the commit takes, a Changes row what isn't staged,
+  an untracked file as all new; the clicked row stays highlighted. **Commit** commits what is staged; with
   nothing staged the button reads **Commit all** and commits everything shown. A "Push ↑N"
   button shows while the branch is ahead (it never pulls), and a History button.
 - **History**: a tab with a Git Graph style list (curved lanes, branch and tag badges, date,
   author, hash) and a details panel docked under it for the clicked commit: message, changed
-  files, diff, copy hash or subject, open the commit in a terminal, check out (refused with
-  uncommitted changes), create a branch. "Re-read local git" refreshes; it never fetches.
+  files (a click opens the file's diff), copy hash or subject, open the commit in a terminal,
+  check out (refused with uncommitted changes), create a branch. "Re-read local git" refreshes;
+  it never fetches. As an editor tab of its own, History opens diffs in a preview pane split to
+  its right; in VS Code · Inbox's sidebar, in the Diff tab.
+- **Diff tab**: a file's diff side by side, old left and new right, line numbers on each side,
+  removed lines tinted red and added green, a removed line facing the added line that replaced
+  it and leftovers facing an empty cell, hunk headers (`@@ … @@`) across both. One preview tab
+  per space, its name in *italics* in the tab bar and a diff icon: the next click replaces what
+  it shows. Its 36px header shows the path, what is compared (`HEAD ↔ index`, `index ↔ working
+  tree`, `a1b2c3d^ ↔ a1b2c3d`, `new file`), +N −N, **Whole file** (every unchanged line too,
+  remembered) and **Keep open** (the diff in a tab of its own, which survives restarts). When the
+  change goes away (staged, committed, discarded) it says "No changes left in …". While it has
+  focus, Changes, Files and the status bar keep showing the folder of the last terminal.
 
 **Workspace contexts.** Each of Files, Changes, the status bar and History asks
 `context.js` whether the focused folder has a workspace context. The published copy always says
@@ -159,6 +171,15 @@ Mods in this folder:
   `discard.js` is the confirm dialog, a second copy of the mod opened with props
   `{dialog: "discard", title, repo, on, tracked, untracked}`, which sets shared
   `vscode-changes.changed` after a discard so every Changes panel rescans.
+- `vscode-diff` (new): props `{preview: true, key}` (a preview) or `{request}` (kept). A request is
+  `{repo, on, path, kind: "unstaged" | "staged" | "untracked" | "commit", hash?, short?}`; it runs
+  `git diff [--cached]`, `git diff-tree -p --first-parent <hash>` or `readTextFile`, with `-U99999`
+  for Whole file. `diff-open.js` (in changes, history, diff, tabs) is `openDiff(request,
+  {beside?})`: shared `vscode-diff.preview` maps `space:<id>` or `pane:<id>` to `{pane, tab,
+  request, seq}`; it reuses a live preview (`tab.select`, `tab.rename`) or opens one (`tab.new
+  {mod, props, name}`, or `pane.split {pane, direction: "right", mod, props}`), and the new copy
+  records its own pane from `focused()`. `diff-pairs.js` pairs unified-diff lines into rows. Keep
+  open runs `tab.new {mod: "vscode-diff", props: {request}}` then closes the preview.
 - `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch), a second copy of
   itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
   `{follow: true}` it shows the focused pane's repo instead (used by VS Code · Inbox).
@@ -172,6 +193,11 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
 
 ## Watch out
 
+- `run()` returns nothing, so `openDiff` can't learn the new preview's tab id from `tab.new`:
+  the preview copy records its own pane and tab (the focused pane right after it opens), and
+  `openDiff` reuses it only while that pane is still in `panes()`.
+- A mod pane has no folder, so `focus.js` keeps the last terminal's place while one has focus;
+  without that, opening a diff resets the Changes list it was opened from.
 - **macOS first.** `cmd-` keys, Menlo and the system UI font, traffic-light spacing, `pbcopy`
   for copying, and "⇧⌘P" in the status bar. On Linux or Windows copying fails with a toast and
   the label is wrong.
@@ -195,7 +221,7 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
 
 ## Done when
 
-- `herdr-app check mods/<name>` passes for all eight `vscode-*` mods, and `herdr-app status`
+- `herdr-app check mods/<name>` passes for all nine `vscode-*` mods, and `herdr-app status`
   shows `"errors": []` after `layout.switch {name: "vscode"}`.
 - The window shows title bar, activity bar, sidebar, tabs, panes with headers, and status bar,
   with no system title bar.
@@ -203,6 +229,8 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
   and `cmd-shift-g` do the same.
 - In Changes, + on a file moves it to STAGED, − moves it back, ↶ asks and then reverts it, and
   Commit with something staged commits only that file.
+- Clicking two files in Changes one after the other shows each in the same italic Diff tab; Keep
+  open leaves a normal tab with the first, and the next click opens a fresh preview.
 - An agent going working → blocked → done changes its tab's slot from spinner to red dot to green
   dot, and the status bar and Agents badge count it.
 - Clicking a file in Files opens it in ttt beside the focused pane; clicking another reuses that ttt.

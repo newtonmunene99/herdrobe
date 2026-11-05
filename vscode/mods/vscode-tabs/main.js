@@ -2,8 +2,9 @@
 // of the active one, close on the active/hovered tab, drag to reorder, double-click to rename.
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, agents, run, openOverlay, theme } from "herdr";
+import { spaces, panes, agents, run, openOverlay, theme, shared } from "herdr";
 import { inboxView } from "./inbox.js";
+import { PREVIEW } from "./diff-open.js";
 
 // Path of this mod's own SVG icon called name.
 const ICON = (name) => `mods/vscode-tabs/${name}.svg`;
@@ -45,6 +46,10 @@ export default class Tabs extends View {
     const program = this.program(c);
     const status = this.status(c);
     const name = c.named ? c.name : program?.name ?? c.name;
+    // A diff tab shows vscode-diff's icon; the preview one (diff-open.js) is in italics, as VS
+    // Code marks a preview editor that the next click replaces.
+    const diff = panes().some((p) => p.tab === c.id && p.mod === "vscode-diff");
+    const preview = diff && Object.values(shared(PREVIEW) ?? {}).some((e) => e.tab === c.id);
     const showClose = c.active || this.hovered === c.id;
     return h_flex().id(`tab-${c.id}`).h_full().pl(12).pr(6).gap(6).items_center().flex_none().relative()
       .text_size(12.5).border_r(1).border_color(t.border)
@@ -61,8 +66,9 @@ export default class Tabs extends View {
       })
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
       .when(c.active, (el) => el.child(div().absolute().top(0).left(0).right(0).h(1).bg(t.accent)))
-      .when(Boolean(program?.icon), (el) => el.child(program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)))
-      .child(div().max_w(180).truncate().child(c.zoomed ? `${name} (zoomed)` : name))
+      .when(diff, (el) => el.child(svg("mods/vscode-diff/file-diff.svg").size(14).text_color(t.muted)))
+      .when(!diff && Boolean(program?.icon), (el) => el.child(program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)))
+      .child(div().max_w(180).truncate().when(preview, (el) => el.italic()).child(c.zoomed ? `${name} (zoomed)` : name))
       // One 18px slot on the right: status while idle, ✕ when hovered or active (like VS Code's dirty dot).
       .child(div().id(`slot-${c.id}`).size(18).flex_none().flex().items_center().justify_center().rounded(4)
         .when(showClose, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))

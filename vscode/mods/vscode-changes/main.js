@@ -1,4 +1,5 @@
-// Uncommitted changes with a diff preview, a commit box and a push button per repo. Files are in
+// Uncommitted changes with a commit box and a push button per repo; clicking a file shows its
+// diff in the Diff tab (vscode-diff, through diff-open.js). Files are in
 // two groups, as in VS Code: Staged (− unstages) and Changes (+ stages, ↶ discards after asking,
 // see discard.js), as a folder tree or a flat list (model.js). Commit commits what is staged, or
 // everything in the section when nothing is.
@@ -7,22 +8,20 @@
 // lists and commits ONLY paths under its folder: a repo shared with other projects would
 // otherwise have its unrelated work swept up by a repo-wide `git add -A`.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, exec, readTextFile, watchFolder, theme, settings, run, layout, shared, props } from "herdr";
+import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { spaces, exec, watchFolder, theme, run, layout, shared, setShared, props } from "herdr";
 import { contextFor, openHistory, ROOT_IDS } from "./context.js";
 import { inTabStrip } from "./layout.js";
 import { focusPlace } from "./focus.js";
-import { READ, diffRows, numstatEntries } from "./git-read.js";
+import { READ, numstatEntries } from "./git-read.js";
+import { openDiff } from "./diff-open.js";
 import { changeGroups, changeRows } from "./model.js";
 import { CHANGED, askDiscard, initDiscard, renderDiscard } from "./discard.js";
 
 // The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-changes/${name}.svg`;
-// Height in px of a file or folder row, and of a group's header row; the file list's height is
-// worked out from them.
+// Height in px of a file or folder row, and of a group's header row.
 const ROW_H = 28, GROUP_H = 24;
-// The most rows the file list shows before it scrolls, so the diff keeps room below.
-const MAX_ROWS = 10;
 // Reads and writes this copy's own small settings (the list/tree view); storage can be missing.
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const save = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* a nicety only */ } };
@@ -43,8 +42,6 @@ function key() {
 }
 // The most changed files listed per section; past it the section says so (`limited`).
 const LIMIT = 1000;
-// Counts the lines in `text`; a trailing newline does not start another line.
-const countLines = (text) => text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;
 
 // One section's state from git. `files` paths are repo-relative; `prefix` is the section
 // folder inside its repo ("" for a whole-repo section).
@@ -78,7 +75,7 @@ async function scan(section, on) {
 const sameFile = (a, b) => a.sid === b.sid && a.path === b.path && a.group === b.group;
 
 // The panel: one section per folder from sectionsFor, each with its file list, commit box and
-// push button, over one diff preview of the file picked in any section.
+// push button.
 export default class Changes extends View {
   // Prepares the commit boxes and starts loading, or, opened as an overlay, the discard dialog.
   // The 10-second timer is the fallback for what the folder watch misses: remote spaces, which
@@ -86,7 +83,7 @@ export default class Changes extends View {
   init(initial, cx) {
     const p = initial ?? props() ?? {};
     if (p.overlay) return initDiscard(this, p, cx);
-    this.sections = []; this.state = {}; this.inputs = {}; this.rows = []; this.diffWidth = 0;
+    this.sections = []; this.state = {}; this.inputs = {};
     this.collapsed = new Set(); this.handle = cx.focus_handle();
     // "tree" or "list"; folded folder ids (see changeRows); the row under the pointer, whose
     // stage / unstage / discard buttons show; the last discard seen (CHANGED).
@@ -133,17 +130,17 @@ export default class Changes extends View {
   // Whether a commit or push is running in any section; refresh waits until it ends.
   busy() { return Object.values(this.state).some((s) => s.busy); }
 
-  // Rescans every section, one after another, and reloads the open diff. A new key() first resets
-  // all state, the selection and the watch. It does nothing while a scan or git action runs; act
-  // refreshes when it finishes. An optional section whose folder fails to scan is hidden rather than
-  // shown as an error. The first changed file opens unless the person closed the preview.
+  // Rescans every section, one after another. A new key() first resets all state, the selection
+  // and the watch. It does nothing while a scan or git action runs; act refreshes when it
+  // finishes. An optional section whose folder fails to scan is hidden rather than shown as an
+  // error. The selection (the row the Diff tab shows) clears when that row is gone.
   refresh(cx) {
     if (this.loading || this.busy()) return;
     const loc = location(), next = key();
     if (next !== this.context?.key) {
       this.sections = sectionsFor(loc);
       this.context = { key: next, on: loc.on, sections: this.sections };
-      this.state = {}; this.open = null; this.closed = false; this.watching = null; this.error = null; this.setLines([]);
+      this.state = {}; this.open = null; this.watching = null; this.error = null;
       // State first: if resetting a box ever throws, render still finds every section.
       for (const s of this.sections) this.state[s.id] = { files: [], staged: [], changes: [], others: 0, stagedOutside: 0, message: "", note: null, busy: null, loaded: false };
       for (const s of this.sections) this.input(s.id).set_value("");
@@ -165,13 +162,7 @@ export default class Changes extends View {
         }
         this.watch(context, cx);
         const all = this.visible().flatMap((sec) => this.state[sec.id].files.map((f) => ({ sid: sec.id, path: f.path, group: f.group })));
-        if (this.open && !all.some((o) => sameFile(o, this.open))) { this.open = null; this.setLines([]); }
-        // The first file's diff shows until you pick another.
-        if (!this.open && !this.closed && all.length) this.open = all[0];
-        if (this.open) {
-          try { await this.load(this.open, context); }
-          catch { if (this.context === context) this.setLines(["Cannot preview this diff (too large or unreadable)"]); }
-        }
+        if (this.open && !all.some((o) => sameFile(o, this.open))) this.open = null;
       } finally { this.loading = false; cx.notify(); }
     });
   }
@@ -188,52 +179,13 @@ export default class Changes extends View {
   // The sections to draw: every one with state, minus optional ones whose folder is missing.
   visible() { return this.sections.filter((sec) => this.state[sec.id] && !this.state[sec.id].missing); }
 
-  // Fills the diff preview with `open`'s changes, if it is still the file shown in `context`.
-  // An untracked file is read from disk as all-added lines, which also recounts its `add`; a
-  // Staged row shows `git diff --cached` (what the commit takes), a Changes row `git diff` (what
-  // is not staged yet). Binary files get a one-line note, and the preview is capped at 1500
-  // lines of 4000 characters. Throws when git fails; refresh and pick show the error.
-  async load(open, context) {
-    const s = this.state[open.sid], file = s?.files.find((f) => sameFile({ sid: open.sid, ...f }, open));
-    if (!file) return;
-    const on = context.on;
-    let lines;
-    if (file.fresh) {
-      const text = await readTextFile(`${s.repo}/${file.path}`, { on }).catch(() => null);
-      if (text === null) lines = ["Cannot preview this file (binary, too large, or unreadable)"];
-      else if (text.includes("\0")) lines = ["Binary file · no text diff"];
-      else {
-        file.add = countLines(text);
-        lines = [`@@ -0,0 +1,${file.add} @@`, ...text.slice(0, 400000).replace(/\n$/, "").split("\n").slice(0, 1500).map(l => `+${l}`)];
-      }
-    } else {
-      const r = await exec("git", [...READ, "diff", ...(file.group === "staged" ? ["--cached"] : []), "--no-ext-diff", "--no-textconv", "--no-color", "--", file.path], { cwd: s.repo, on });
-      if (r.code !== 0) throw new Error(r.stderr);
-      const all = r.stdout.replace(/\n$/, "").split("\n"), first = all.findIndex((l) => l.startsWith("@@"));
-      lines = first < 0 ? [file.binary ? "Binary file changed" : "No text diff available"] : all.slice(first);
-    }
-    if (this.context === context && this.open === open) this.setLines(lines.slice(0, 1500).map(line => line.length > 4000 ? line.slice(0, 4000) + "… (line truncated)" : line));
-  }
-
-  // Replaces the diff rows and the scroll width, estimated at 7px a character plus the gutter.
-  setLines(lines) {
-    this.rows = diffRows(lines);
-    this.diffWidth = Math.max(300, ...lines.map(line => line.length * 7 + 50));
-  }
-
-  // Shows the diff of `path` in `group` ("staged" or "changes"), or closes the preview when it is
-  // already shown. A closed preview stays closed across refreshes (`closed`) instead of reopening
-  // the first file.
+  // Shows the diff of `path` in `group` ("staged" or "changes") in the Diff tab (diff-open.js)
+  // and marks its row. An untracked file is shown as all new.
   pick(sid, path, group, cx) {
-    const next = { sid, path, group }, same = this.open && sameFile(this.open, next);
-    this.open = same ? null : next; this.setLines([]);
-    this.closed = !this.open;
-    const context = this.context, open = this.open;
-    if (open) cx.spawn(async (cx) => {
-      try { await this.load(open, context); }
-      catch (e) { if (this.context === context && this.open === open) this.setLines([`Cannot preview this diff (too large or unreadable): ${e}`]); }
-      cx.notify();
-    });
+    const s = this.state[sid], f = s?.files.find((x) => x.path === path && x.group === group);
+    if (!f) return;
+    this.open = { sid, path, group };
+    openDiff({ repo: s.repo, on: this.context.on, path, kind: group === "staged" ? "staged" : f.fresh ? "untracked" : "unstaged" });
     cx.notify();
   }
 
@@ -249,6 +201,8 @@ export default class Changes extends View {
           if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         }
         if (this.context === context) done?.();
+        // Tells open Diff tabs (and other Changes panels) that the index or files moved.
+        setShared(CHANGED, Date.now());
       } catch (e) { if (this.context === context) s.note = `${label.replace("…", "")} failed: ${e.message ?? e}`; }
       finally { s.busy = null; this.refresh(cx); cx.notify(); }
     });
@@ -295,15 +249,6 @@ export default class Changes extends View {
   push(id, cx) {
     const s = this.state[id];
     if (s?.ahead) this.act(id, "Pushing…", [[["push"], s.repo]], null, cx);
-  }
-
-  // One diff line: a hunk header, or a numbered added, removed or context line. Its 20px height
-  // must match the row height given to v_virtual_list in render.
-  diffRow({ kind, number, text }, t) {
-    if (kind === "@") return div().w_full().px(12).h(20).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    return h_flex().w_full().h(20).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-      .child(div().w(30).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).truncate().child(text));
   }
 
   // One small icon button on a row. `action(cx)` runs on click without the click reaching the row.
@@ -373,19 +318,18 @@ export default class Changes extends View {
       .child(this.actions(sid, f.group, rowId, { path: f.path, files: [f], title: `Discard changes to ${name}?` }, t));
   }
 
-  // A section's file list: each non-empty group's header and rows, as a tree or a flat list,
-  // scrolling past MAX_ROWS rows so two busy sections still leave room for the diff.
+  // A section's file list: each non-empty group's header and rows, as a tree or a flat list. The
+  // whole panel scrolls, so the list takes the height it needs.
   fileList(sec, t) {
     const s = this.state[sec.id], rows = [];
-    let height = 0;
     for (const group of ["staged", "changes"]) {
       if (!s[group].length) continue;
-      rows.push(this.groupRow(sec, group, s[group], t)); height += GROUP_H;
+      rows.push(this.groupRow(sec, group, s[group], t));
       for (const row of changeRows(s[group], this.view, this.folded, `${sec.id}:${group}`)) {
-        rows.push(row.kind === "dir" ? this.dirRow(sec.id, group, row, t) : this.fileRow(sec.id, row, t)); height += ROW_H;
+        rows.push(row.kind === "dir" ? this.dirRow(sec.id, group, row, t) : this.fileRow(sec.id, row, t));
       }
     }
-    return v_flex().id(`files-${sec.id}`).flex_none().h(rows.length ? Math.min(height, MAX_ROWS * ROW_H) + 4 : "auto").overflow_y_scrollbar()
+    return v_flex().id(`files-${sec.id}`).flex_none()
       .px(6).pb(4).when(!sec.label, (e) => e.pt(6)).children(rows)
       .when(!rows.length, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.dim).child(s.error || (s.loaded ? "No uncommitted changes" : "Loading changes…"))));
   }
@@ -441,16 +385,9 @@ export default class Changes extends View {
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${count} file${count === 1 ? "" : "s"}`))
         .child(this.iconButton("view-toggle", this.view === "tree" ? "list" : "list-tree", this.view === "tree" ? "View as list" : "View as tree", toggle, t))
         .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`)))
-      // Sections size to their content (each file list scrolls on its own); the diff gets the
-      // rest. A max_h on a scrolling box made it fill the whole cap instead.
-      .child(v_flex().id("changes-sections").flex_none()
+      // The sections fill the panel and scroll together; diffs open in the Diff tab.
+      .child(v_flex().id("changes-sections").flex_1().min_h(0).overflow_y_scrollbar()
         .children(shown.map((sec) => this.section(sec, t)))
-        .when(!shown.length, (e) => e.child(div().p(14).text_color(t.dim).child("No folder"))))
-      .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
-        .child(div().id("changes-diff-x").size_full().overflow_x_scrollbar()
-          .child(div().w_full().min_w(this.diffWidth).h_full().child(v_virtual_list("changes-diff", this.rows.length, 20, (i) => String(i),
-            (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
-        .child(Scrollbar.vertical("changes-diff").viewport_from_layout().absolute().inset_0())
-        .when(!this.open && files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))));
+        .when(!shown.length, (e) => e.child(div().p(14).text_color(t.dim).child("No folder"))));
   }
 }

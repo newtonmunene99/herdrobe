@@ -1,5 +1,5 @@
 // Git history as a Git Graph-style tab: curved lanes, branch and tag badges, date, author and
-// hash columns, and a details panel (message, changed files, diff, actions) docked under the
+// hash columns, and a details panel (message, changed files, actions) docked under the
 // list for the clicked commit (Git Graph's "Docked to Bottom"): gpui-kit's virtual lists allow
 // no handlers inside rows, so rows report clicks through the list and the controls live below.
 // Opened by vscode-changes (History button) and vscode-statusbar (cmd-shift-h) with props
@@ -14,11 +14,12 @@
 // shared state.
 import { View, div, uniform_list, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
-import { exec, theme, settings, run, props, openOverlay, closeOverlay, shared, setShared, layout as appLayout } from "herdr";
+import { exec, theme, settings, run, props, openOverlay, closeOverlay, shared, setShared, focused, panes, layout as appLayout } from "herdr";
 import { contextFor } from "./context.js";
 import { inTabStrip } from "./layout.js";
 import { focusPlace } from "./focus.js";
-import { READ, diffRows, numstatEntries } from "./git-read.js";
+import { READ, numstatEntries } from "./git-read.js";
+import { openDiff } from "./diff-open.js";
 import { copy } from "./clipboard.js";
 
 // Narrower than this (points), the details panel stacks its two halves and the header controls
@@ -269,21 +270,15 @@ export default class History extends View {
     cx.notify();
   }
 
-  // Shows the open commit's diff for `file`, or hides it when it is already shown. Like toggle's
-  // file list, a merge diffs against its first parent. Headers before the first hunk are dropped
-  // and at most 1500 lines are kept; a git failure shows its stderr as the diff.
+  // Shows the open commit's diff for `file` (a merge against its first parent) in the Diff
+  // preview (diff-open.js) and marks its row. In the right sidebar (follow mode) that is the
+  // space's Diff tab; as an editor tab of its own, a preview pane split to its right, so the
+  // next file is one click away without leaving History.
   showDiff(file, cx) {
     const details = this.details, info = this.repoInfo[this.repoId];
-    if (details.file === file.path) { details.file = null; details.rows = null; cx.notify(); return; }
-    details.file = file.path; details.rows = [{ kind: "", text: "Loading diff…" }];
-    cx.spawn(async (cx) => {
-      const r = await git(info.root, ["diff-tree", "-p", "--root", "-m", "--first-parent", "--no-color", "--no-ext-diff", details.hash, "--", file.path]).catch((e) => ({ code: 1, stderr: String(e) }));
-      if (details.file !== file.path) return;
-      const lines = r.code === 0 ? r.stdout.replace(/\n$/, "").split("\n") : [r.stderr];
-      const first = lines.findIndex((l) => l.startsWith("@@"));
-      details.rows = diffRows(first < 0 ? [file.binary ? "Binary file changed" : "No text diff"] : lines.slice(first, first + 1500));
-      cx.notify();
-    });
+    details.file = file.path;
+    const own = this.follow ? null : panes().find((p) => p.pane === focused()?.pane && p.mod === "vscode-history");
+    openDiff({ repo: info.root, on: null, path: file.path, kind: "commit", hash: details.hash, short: details.hash.slice(0, 7) }, { beside: own?.pane });
     cx.notify();
   }
 
@@ -391,7 +386,8 @@ export default class History extends View {
   }
 
   // Draws the panel docked under the list for the open commit `c`: metadata and actions on the
-  // left, changed files on the right (stacked when compact), the selected file's diff below. It
+  // left, changed files on the right (stacked when compact); a file's diff opens in the Diff
+  // preview. It
   // takes 42% of the tab's height. A parent hash opens that commit when it is loaded, else copies
   // it. The checkout and branch buttons open dialogs; nothing here writes to git directly.
   detailsPanel(c, t) {
@@ -431,23 +427,11 @@ export default class History extends View {
         .when(f.add > 0, (e) => e.child(div().text_color(t.ansi2).child(`+${f.add}`)))
         .when(f.del > 0, (e) => e.child(div().text_color(t.ansi1).child(`−${f.del}`)))))
       .when(!d.loading && !files.length, (e) => e.child(div().text_color(t.dim).child("No file changes here")));
-    const diff = d.rows ? v_flex().id(`diff-${c.hash}`).mt(8).h(Math.min(360, d.rows.length * 18 + 8)).overflow_y_scrollbar().rounded(6).border_1().border_color(t.border)
-      .font_family(mono).text_size(11).children(d.rows.map((row, i) => this.diffRow(row, i, t))) : null;
     return v_flex().id("history-details").h("42%").flex_none().overflow_y_scrollbar().bg(t.surface).border_t(1).border_color(t.border).px(14).py(10)
       .child((compact ? v_flex() : h_flex()).items_start().relative()
         .child(div().when(!compact, (e) => e.flex_1()).w_full().min_w(0).pr(12).child(left)).child(right)
         .child(div().id("close-details").when(compact, (e) => e.absolute().top(0).right(0)).pl(10).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground)).tooltip("Close (or click the commit again)")
-          .on_click((_e, cx) => { this.open = null; this.details = null; cx.notify(); }).child("✕")))
-      .when(Boolean(diff), (e) => e.child(diff));
-  }
-
-  // Draws one diffRows() line, 18 px tall to match detailsPanel's diff height estimate. The "18"
-  // appended to a theme colour is a hex alpha, so those colours must be #rrggbb.
-  diffRow({ kind, number, text }, i, t) {
-    if (kind === "@") return div().id(`d${i}`).w_full().px(10).h(18).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    return h_flex().id(`d${i}`).w_full().h(18).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-      .child(div().w(36).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).truncate().child(text));
+          .on_click((_e, cx) => { this.open = null; this.details = null; cx.notify(); }).child("✕")));
   }
 
   // Draws a segmented control from [value, label] pairs, highlighting `value`; a click calls
