@@ -18,6 +18,8 @@
 // (vscode-changes creates each commit box before it renders). None here.
 export const ROOT_IDS = [];
 
+// Always returns null: this published copy knows no workspace, so every folder shows as itself.
+// A personal context.js replaces it with one that knows its own checkouts.
 export function contextFor(_path) {
   return null;
 }

@@ -4,10 +4,15 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, panes, agents, run, openOverlay, theme, shared } from "herdr";
 
+// Path of this mod's own SVG icon called name.
 const ICON = (name) => `mods/vscode-tabs/${name}.svg`;
+// Mouse handler that keeps a press on a button from starting a tab drag or reaching the strip.
 const stop = (_e, cx) => cx.stop_propagation();
 
+// The tab strip: the shown space's tabs, then the New terminal and Split right buttons.
 export default class Tabs extends View {
+  // Starts with no tab pressed or hovered: pressed is the index in the strip of the tab a drag
+  // started on, hovered the id of the tab under the pointer.
   init() {
     this.pressed = null;
     this.hovered = null;
@@ -32,6 +37,9 @@ export default class Tabs extends View {
     return "idle";
   }
 
+  // Draws tab c, at index i of shown (space's tabs), with its program's icon, name and one slot
+  // for status or close. Releasing a press on another tab moves the pressed one there; a click
+  // selects it, a double-click renames it and a right-click opens Herdr's tab menu.
   tab(c, i, shown, space) {
     const t = theme();
     const program = this.program(c);
@@ -65,6 +73,7 @@ export default class Tabs extends View {
         .when(!showClose && (status === "blocked" || status === "done"), (el) => el.child(div().size(7).rounded(4).bg(t[status]))));
   }
 
+  // Draws a 24px button showing this mod's icon, with tooltip tip, that runs action on click.
   action(id, icon, tip, action) {
     const t = theme();
     return div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(5)
@@ -72,6 +81,8 @@ export default class Tabs extends View {
       .tooltip(tip).on_mouse_down("left", stop).on_click(action).child(svg(ICON(icon)).size(14));
   }
 
+  // Draws the strip for the active space. A release anywhere on it ends a drag, and the scroll
+  // wheel moves to the previous or next tab. Runs again on every live-data change.
   render() {
     const t = theme();
     const space = spaces().find((p) => p.active);

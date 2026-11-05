@@ -11,19 +11,26 @@ import { contextFor, openHistory } from "./context.js";
 // the moment anyone looks, so a glance makes a finished agent look handled; this keeps it until
 // the person settles it (vscode-agents' Settle). This bar owns the tracking because it is on
 // screen in both VS Code layouts from launch, so no finish is missed while another view or
-// layout is showing. vscode-agents, vscode-tabs and vscode-activitybar only read it.
+// layout is showing. vscode-tabs and vscode-activitybar only read it; vscode-agents' Settle also
+// moves an agent from finished to settled.
 //   prev:     address -> last status seen (persisted: survives restarts and layout switches)
 //   since:    address -> ms of the last status change
 //   finished: address -> ms it finished
 //   settled:  address -> ms it was settled
 const INBOX = "vscode.inbox";
+// One week in ms: how long the inbox keeps the stamps of a terminal that has gone.
 const WEEK = 7 * 86400000;
 
+// Returns a copy of the shared inbox whose four maps can be changed freely before setShared.
+// vscode-agents carries the same helper as inbox().
 function readInbox() {
   const s = shared(INBOX) ?? {};
   return { prev: { ...s.prev }, since: { ...s.since }, finished: { ...s.finished }, settled: { ...s.settled } };
 }
 
+// Records every status change in `list` since the last call and forgets long-gone terminals.
+// This bar is the only writer of prev and since and the only one that stamps finished; it
+// writes the record even with nothing changed when none exists yet, so readers find it.
 function trackInbox(list) {
   const box = readInbox();
   const now = Date.now();
@@ -72,7 +79,10 @@ function forgetGone(box, now) {
 // A finished agent that stays focused, with the Herdr window in front, for LOOK_MS has been
 // looked at: settle it. Clicking straight past it (less than LOOK_MS) leaves it in Finished.
 const LOOK_MS = 5000;
+// The finished agent being looked at now and since when (ms), or null; lives only in this copy.
 let looking = null; // { address, since }
+// Starts, continues or ends the look at the focused finished agent; called once a second.
+// Any change of focus, or the window going to the background, restarts the count.
 function settleLooked() {
   const box = shared(INBOX);
   const a = agents().find((x) => x.focused);
@@ -89,6 +99,8 @@ function settleLooked() {
 // The names this mod gave spaces, { spaceId: name }. A space whose name differs from its entry
 // was renamed by the person and is never touched again. Losing this record only freezes names.
 const OWN = "spaceNames:v1";
+// Reads the record: null when there is none yet (nameSpaces then adopts LOOKS_OURS names), and
+// {} when it can't be read.
 function loadOwn() {
   try {
     const raw = localStorage.getItem(OWN);
@@ -96,6 +108,7 @@ function loadOwn() {
     return raw == null ? null : JSON.parse(raw);
   } catch { return {}; }
 }
+// Writes the record; a failed write is ignored.
 function saveOwn(own) {
   try { localStorage.setItem(OWN, JSON.stringify(own)); } catch { /* names just freeze */ }
 }
@@ -127,11 +140,14 @@ function contextHere() {
   return { space, ctx: contextFor(pane?.cwd || f?.cwd || space.folder) };
 }
 
+// The path of one of this mod's icons, as image() and svg() want it.
 const ICON = (name) => `mods/vscode-statusbar/${name}.svg`;
 
 // Friendly names for the layout switcher; anything else shows its file name.
 const LAYOUT_NAMES = { vscode: "VS Code", "vscode-inbox": "VS Code · Inbox", main: "Herdr", terminals: "Terminals", win98: "Herdr 98" };
+// The name to show for a layout.
 const layoutName = (name) => LAYOUT_NAMES[name] ?? String(name ?? "");
+// Height of one row of the layout popup, px; openLayoutMenu sizes the popup from it.
 const MENU_ROW = 26;
 
 // Every layout, Herdr's own included, as a popup: this same mod opened with { layoutMenu: true }.
@@ -139,7 +155,10 @@ function openLayoutMenu() {
   openOverlay({ mod: "vscode-statusbar", kind: "popup", width: 220, height: layouts().length * MENU_ROW + 10, props: { layoutMenu: true } });
 }
 
+// The status bar, docked in both VS Code layouts; with props { layoutMenu: true } it is the
+// layout popup instead (see openLayoutMenu).
 export default class StatusBar extends View {
+  // Listens for this mod's key commands and starts the naming and settling timers.
   init(_props, cx) {
     // The layout popup copy only draws its list: no tracking, renaming or timers.
     if (props()?.layoutMenu) return;
@@ -161,6 +180,8 @@ export default class StatusBar extends View {
     this.nameSpaces();
   }
 
+  // Names every space after its context (see renameSpace) and saves the names this mod gave.
+  // Runs every 2000 ms; it also drops entries of spaces that are gone.
   nameSpaces() {
     const all = spaces();
     let own = loadOwn(), changed = false;
@@ -201,12 +222,15 @@ export default class StatusBar extends View {
     return true;
   }
 
+  // Copies `text` to the clipboard and says so in a toast titled `title`. It uses pbcopy, so it
+  // works on macOS only; elsewhere the toast reports the failure.
   copy(text, title) {
     exec("sh", ["-c", 'printf %s "$1" | pbcopy', "copy", text])
       .then((r) => notify(r.code === 0 ? { title: title ?? "Copied", body: text, timeout: 2000 } : { title: "Copy failed", body: r.stderr, level: "error" }))
       .catch((e) => notify({ title: "Copy failed", body: String(e), level: "error" }));
   }
 
+  // One status bar entry; it is clickable and highlights on hover only when given an action.
   item(id, children, tip, action) {
     const t = theme();
     return h_flex().id(id).h_full().px(7).gap(4).items_center().flex_none()
@@ -215,6 +239,8 @@ export default class StatusBar extends View {
       .children(children);
   }
 
+  // Draws the bar and updates the inbox. The popup copy returns before trackInbox, so only the
+  // docked bar writes the inbox.
   render() {
     if (props()?.layoutMenu) return this.layoutMenu();
     const t = theme();
@@ -255,6 +281,8 @@ export default class StatusBar extends View {
       .child(this.item("layout", [div().child(`Layout: ${current}`)], "Switch layout (cmd-shift-l)", () => openLayoutMenu()));
   }
 
+  // Draws the layout popup: every layout, the shown one ticked. A pick closes the popup and
+  // switches unless it is the shown one.
   layoutMenu() {
     const t = theme();
     const now = shared("layout");

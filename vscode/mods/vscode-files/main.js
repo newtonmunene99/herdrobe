@@ -33,6 +33,9 @@ async function openInTtt(path) {
   else run("tab.new", { argv });
 }
 
+// Where the panel looks: the focused pane's live folder, the machine it is on (null here) and the
+// active space. A focused layout terminal block has no pane, so its machine comes from its
+// `machine/tN` address. Mirrors location() in vscode-changes.
 function location() {
   const space = spaces().find(s => s.active), f = focused();
   const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
@@ -46,14 +49,24 @@ function rootsFor({ cwd, on }) {
   if (!ctx?.roots?.length) return { ctx: null, roots: cwd ? [{ id: "", dir: cwd }] : [] };
   return { ctx, roots: ctx.roots };
 }
+// Identifies what the panel shows: machine, space and root folders. When it changes, refresh
+// stashes the open folders, file and collapsed sections under the old key and restores the new
+// one's, so each space keeps its own tree.
 function key() {
   const loc = location(), { roots } = rootsFor(loc);
   return JSON.stringify({ on: loc.on, space: loc.space, dirs: roots.map(r => r.dir) });
 }
+// The `entries` and `folders` key for folder `rel` ("" for the top) under root `rid`.
 const at = (rid, rel) => `${rid}:${rel}`;
+// Editor languages for extensions the preview does not know by name; others pass through.
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html" };
+// Entry caps: per listed folder, and across the whole tree. directory() lists one entry past 500
+// so loadFolder can tell a folder was cut; the limit note in render spells out both numbers.
 const PER_FOLDER = 500, TOTAL = 5000;
 
+// Lists one folder on `on`'s machine as [{ name, dir }], skipping .git and keeping dotfiles.
+// Links to folders count as folders, dangling links as files. Throws when the folder cannot be
+// listed, including when it no longer exists.
 async function directory(path, on) {
   if (!on && window()?.platform === "windows") {
     // Windows PowerShell otherwise uses the console code page; exec decodes UTF-8.
@@ -88,7 +101,12 @@ async function changeMarks(dir, on) {
   return marks;
 }
 
+// The panel: a lazy tree per root from rootsFor, listing a folder only once it is opened, with
+// git change letters on its entries and a read-only preview for files it does not hand to ttt.
 export default class Files extends View {
+  // Starts loading. `saved` holds each key's open folders, file and collapsed sections. The
+  // 10-second timer is the fallback for remote spaces, which are never watched, and for folders
+  // that cannot be.
   init(_props, cx) {
     this.saved = new Map();
     this.roots = []; this.entries = new Map(); this.folders = new Set(); this.pending = new Set();
@@ -97,6 +115,8 @@ export default class Files extends View {
     cx.timer.every(10000, cx => this.refresh(cx));
   }
 
+  // Starts one watchFolder loop per root for a local context, at most once per context; each loop
+  // ends when the context changes.
   watch(context, cx) {
     if (context.on || this.watching === context) return;
     this.watching = context;
@@ -106,16 +126,23 @@ export default class Files extends View {
     });
   }
 
+  // Whether `context` is still the shown one and focus has not moved to another folder; async work
+  // checks it before writing results.
   current(context) {
     return this.context === context && key() === context.key;
   }
 
+  // The shown root with id `rid`.
   root(rid) { return this.roots.find(r => r.id === rid); }
 
+  // How many entries are loaded across the tree, leaving out folder key `except`.
   used(except) {
     return [...this.entries.entries()].filter(([k]) => k !== except).reduce((n, [, e]) => n + e.length, 0);
   }
 
+  // Lists one folder into `entries`, folders first then by name, within PER_FOLDER and what is left
+  // of TOTAL, and sets `limited` when it had to cut. A result arriving after the context changed or
+  // the folder was closed is dropped. Throws when the folder cannot be listed.
   async loadFolder(rid, rel, context) {
     const root = context.roots.find(r => r.id === rid);
     const entries = await directory(rel ? `${root.dir}/${rel}` : root.dir, context.on);
@@ -125,6 +152,9 @@ export default class Files extends View {
     if (entries.length > PER_FOLDER || used + entries.length > TOTAL) this.limited = true;
   }
 
+  // Re-lists every root and its open folders and reloads change letters, one task at a time.
+  // A new key() first stashes the old view under its key and restores the new one's. An optional
+  // root that fails to load is hidden; any other shows its error in place of its rows.
   refresh(cx) {
     const loc = location(), next = key();
     if (next !== this.context?.key) {
@@ -168,6 +198,8 @@ export default class Files extends View {
     return changeMarks(root.dir, context.on);
   }
 
+  // Opens or closes folder `rel`. Closing forgets its open subfolders too, so reopening shows them
+  // shut; opening lists it once, however often it is clicked meanwhile (`pending`).
   toggle(rid, rel, cx) {
     const k = at(rid, rel);
     if (this.folders.has(k)) {
@@ -190,6 +222,7 @@ export default class Files extends View {
     cx.notify();
   }
 
+  // Opens a file in ttt on this machine; a remote space shows it in the panel's preview instead.
   open(rid, rel, cx) {
     const root = this.root(rid);
     if (this.on || !root) return this.show({ rid, rel }, cx);
@@ -218,6 +251,8 @@ export default class Files extends View {
     });
   }
 
+  // Appends the rows of one folder's entries to `out`, depth first through open folders, indented
+  // 18px a level. Stops at TOTAL rows or 40 levels deep.
   rows(rid, prefix, depth, out, t) {
     if (out.length >= TOTAL || depth > 40) return out;
     for (const entry of this.entries.get(at(rid, prefix)) ?? []) {
@@ -251,6 +286,8 @@ export default class Files extends View {
     return out;
   }
 
+  // Draws the header, then the tree, or the preview while a file is shown. It refreshes here when
+  // key() changes, since moving focus to another folder redraws the panel without a timer tick.
   render(cx) {
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme(), plain = this.roots[0];

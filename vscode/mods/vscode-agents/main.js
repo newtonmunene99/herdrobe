@@ -11,15 +11,23 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, spaces, panes, run, theme, shared, setShared, setAgentOrder, hc, nextCommand, openOverlay, pickFolder } from "herdr";
 
+// Shared key of the inbox record vscode-statusbar keeps, keyed by agent address: prev holds the
+// last status it saw; since, finished and settled hold times in ms since the epoch.
 const INBOX = "vscode.inbox";
+// The ring spinner shipped with vscode-tabs, so both mods spin the same icon.
 const SPINNER = "mods/vscode-tabs/spinner.svg";
+// Path of workspace-chrome's chevron icon pointing dir ("down" or "right").
 const CHEVRON = (dir) => `mods/workspace-chrome/chevron-${dir}.svg`;
 
 // Space colours: copied whole from Herdr's picker mod (mods/picker/main.js) so both always
 // agree. Kept by space id in shared "space.colors": a theme colour name or a picked #rrggbb.
 // A space seen without one gets the colour fewest spaces use, once, in space order.
 const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
+// The theme colour names handed to new spaces; on a tie, and as the fallback, the first wins.
 const PROJECT_COLORS = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
+// Returns every space's colour by space id, dropping spaces that are gone and giving each new one
+// a colour; the home space ("~") gets none. It writes shared "space.colors" only when something
+// changed, so calling it from render settles after one redraw instead of looping.
 function spaceColors() {
   const ids = new Set(spaces().map((p) => p.id));
   const kept = Object.fromEntries(Object.entries(shared("space.colors") ?? {}).filter(([id]) => ids.has(id)));
@@ -33,14 +41,18 @@ function spaceColors() {
   if (changed) setShared("space.colors", kept);
   return kept;
 }
+// Returns the colour of space p's mark: dim for the home space, a picked #rrggbb as is, else the
+// MARK swatch or theme colour it names. p needs only id and name.
 function spaceColor(t, p) {
   if (p.name === "~") return t.dim;
   const c = spaceColors()[p.id] ?? PROJECT_COLORS[0];
   return c.startsWith("#") ? c : (MARK[c] ?? t[c]);
 }
 
+// Strips the leading glyphs (spinners, status marks) agents put in front of their titles.
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}~]+/u, "").trim();
 
+// Formats a time in ms since the epoch as a short age ("now", "4m", "2h", "3d"); "" for none.
 function ago(ms) {
   if (!ms) return "";
   const m = Math.floor((Date.now() - ms) / 60000);
@@ -50,26 +62,33 @@ function ago(ms) {
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }
 
+// Draws program p's icon at size px, a one-colour glyph tinted with color; null if it has none.
 function icon(p, size, color) {
   if (!p?.icon) return null;
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
+// Reads the JSON value this copy saved under key, or fallback when it is missing or unreadable.
 function load(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
     return raw == null ? fallback : JSON.parse(raw);
   } catch { return fallback; }
 }
+// Saves value as JSON under key in this copy's localStorage, ignoring failures.
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* per-window nicety only */ }
 }
 
+// Returns a copy of the shared inbox record with all four maps present, safe to change and
+// write back with setShared.
 function inbox() {
   const s = shared(INBOX) ?? {};
   return { prev: { ...s.prev }, since: { ...s.since }, finished: { ...s.finished }, settled: { ...s.settled } };
 }
 
+// Moves the agents at addresses from Finished to Settled, stamped now. A settled agent can't be
+// finished again until it works again: vscode-statusbar clears the stamp when it starts working.
 function settle(addresses) {
   const box = inbox();
   const now = Date.now();
@@ -77,7 +96,10 @@ function settle(addresses) {
   setShared(INBOX, box);
 }
 
+// The agents sidebar: a space filter header over the four folding sections.
 export default class VscodeAgents extends View {
+  // Restores the folded sections and the space filter saved by this copy, starts the timers that
+  // refresh ages and blocked agents' questions, and listens for key commands.
   init(_props, cx) {
     this.waiting = {}; // address -> the line a blocked agent is waiting on
     this.open = { needs: true, finished: true, working: true, settled: false, ...load("open", {}) };
@@ -115,6 +137,9 @@ export default class VscodeAgents extends View {
     });
   }
 
+  // The name to show for agent a: its tab's name if someone named the tab, else its cleaned title
+  // when that says more than the program's name, else the program or tab name. tabs maps tab
+  // id to tab.
   label(a, tabs) {
     const tab = tabs.get(a.tab);
     const title = clean(a.title);
@@ -128,12 +153,15 @@ export default class VscodeAgents extends View {
     return machine ? `${a.space_name} · ${machine}` : a.space_name;
   }
 
+  // Folds or unfolds section id and remembers it for this copy.
   toggle(id, cx) {
     this.open[id] = !this.open[id];
     save("open", this.open);
     cx.notify();
   }
 
+  // Draws the header row of section id, listing the agents in items: chevron, name, count, and
+  // Settle all on Finished. Clicking it folds or unfolds the section.
   section(id, name, items, t) {
     const open = this.open[id];
     return h_flex().id(`sec-${id}`).h(22).px(10).gap(4).items_center().flex_none().cursor_pointer()
@@ -149,6 +177,9 @@ export default class VscodeAgents extends View {
       .child(div().px(5).rounded(8).bg(t.raised).text_size(10.5).text_color(t.foreground).child(String(items.length)));
   }
 
+  // Draws agent a as a card in section kind ("needs" or "finished"): where it is, how long it has
+  // been blocked or finished (from box, the inbox record), its name, then the question it waits
+  // on or a Settle button. Clicking the card focuses its pane.
   card(a, kind, box, tabs, t) {
     const edge = kind === "needs" ? t.blocked : t.done;
     const when = kind === "needs" ? box.since[a.address] : box.finished[a.address];
@@ -180,6 +211,8 @@ export default class VscodeAgents extends View {
       .child(div().text_size(11.5).child(sub));
   }
 
+  // Draws agent a as one line in section kind ("working" or "settled"): a spinner or a hollow dot,
+  // where it is, its name and the time since its status last changed.
   row(a, kind, box, tabs, t) {
     return h_flex().id(`row-${a.address}`).h(24).px(12).gap(7).items_center().cursor_pointer()
       .bg(a.focused ? t.selected : t.background).hover((s) => s.bg(t.hover))
@@ -192,6 +225,8 @@ export default class VscodeAgents extends View {
       .child(div().text_size(11).text_color(t.dim).child(ago(box.since[a.address])));
   }
 
+  // Draws the AGENTS title with the space filter button and, while picking, the dropdown of
+  // spaces and space actions under it.
   header(t) {
     const all = spaces();
     const current = all.find((s) => s.id === this.filter);
@@ -257,6 +292,8 @@ export default class VscodeAgents extends View {
         }))));
   }
 
+  // Sorts the agents into the four sections and draws them, and makes agent.next / agent.prev
+  // follow the same order, folded sections included. Runs again on every live-data change.
   render() {
     const t = theme();
     const box = inbox();

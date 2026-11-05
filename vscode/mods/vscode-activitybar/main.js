@@ -7,7 +7,10 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex } from "gpui-base";
 import { theme, run, layout, agents, updates, shared, nextCommand } from "herdr";
 
+// The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-activitybar/${name}.svg`;
+// Every view the bar knows: `id` is the view's child id in a sidebar stack of the layout, `key`
+// the mod command that toggles it, `icon` its button (null: no button).
 const VIEWS = [
   { id: "spaces-view", key: "spaces", icon: "layers", label: "Spaces" },
   { id: "agents-view", key: "agents", icon: "bot", label: "Agents" },
@@ -17,6 +20,7 @@ const VIEWS = [
   { id: "history", key: "history", icon: null, label: "History" },
 ];
 
+// Finds the layout node with this id under `node`, or null.
 function find(node, id) {
   if (node?.id === id) return node;
   for (const child of node?.children ?? []) {
@@ -35,6 +39,7 @@ function placeOf(id) {
   return null;
 }
 
+// True when the view's sidebar is open and its stack shows that view.
 function isShown(id) {
   const place = placeOf(id);
   if (!place) return false;
@@ -42,6 +47,8 @@ function isShown(id) {
   return !find(root, place.panel)?.hidden && find(root, place.stack)?.active === id;
 }
 
+// Hides the view's sidebar when it already shows the view, else selects the view and opens the
+// sidebar. A view the current layout lacks does nothing.
 function toggleView(id) {
   const place = placeOf(id);
   if (!place) return;
@@ -52,7 +59,9 @@ function toggleView(id) {
   }
 }
 
+// The activity bar: a button per view the layout has, then Machines and Settings at the bottom.
 export default class ActivityBar extends View {
+  // Listens for the view keys; each toggles its view as a click on its button would.
   init(_props, cx) {
     // keys.json "layout:vscode" / "layout:vscode-inbox" bind e.g. "vscode-activitybar.files".
     cx.spawn(async (cx) => {
@@ -67,6 +76,8 @@ export default class ActivityBar extends View {
     });
   }
 
+  // One 48 px button, with an accent marker when `on` and a count badge when `badge` is set
+  // (0 hides it).
   item(id, icon, label, on, action, badge) {
     const t = theme();
     return div().id(`ab-${id}`).w_full().h(48).flex_none().flex().items_center().justify_center().relative()
@@ -91,6 +102,7 @@ export default class ActivityBar extends View {
     return needs + list.filter((a) => a.status !== "blocked" && finished[a.address]).length;
   }
 
+  // Draws the bar; the Settings button shows a "1" when an app update is ready.
   render() {
     const views = VIEWS.filter((v) => v.icon && placeOf(v.id));
     const badge = this.badge();

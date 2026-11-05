@@ -5,9 +5,12 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, spaces, layout, window } from "herdr";
 
+// The path of one of this mod's icons, as svg() wants it.
 const ICON = (name) => `mods/vscode-titlebar/${name}.svg`;
+// Stops a press so a control's click doesn't also start dragging the window.
 const stop = (_e, cx) => cx.stop_propagation();
 
+// Finds the layout node with this id under `node`, or null.
 function find(node, id) {
   if (node?.id === id) return node;
   for (const child of node?.children ?? []) {
@@ -17,7 +20,9 @@ function find(node, id) {
   return null;
 }
 
+// The title bar.
 export default class TitleBar extends View {
+  // One 24 px button, brighter when `on`; it stops its press so it never drags the window.
   button(id, child, tip, action, on) {
     const t = theme();
     return div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(5)
@@ -25,6 +30,8 @@ export default class TitleBar extends View {
       .tooltip(tip).on_mouse_down("left", stop).on_click(action).child(child);
   }
 
+  // Draws the bar. The minimize, maximize and close buttons appear only where the system draws
+  // none (window().buttons); the command center shows the active space and its machine.
   render() {
     const t = theme();
     const w = window();

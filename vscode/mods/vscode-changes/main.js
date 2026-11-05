@@ -15,6 +15,9 @@ function inTabStrip() {
   return (find(layout())?.children ?? []).some((c) => c.content?.mod === "vscode-changes");
 }
 
+// Where the panel looks: the focused pane's live folder and the machine it is on (null here).
+// A focused layout terminal block has no pane, so its machine comes from its `machine/tN` address.
+// Mirrors location() in vscode-files, minus the space id.
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
   const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
@@ -27,6 +30,8 @@ function sectionsFor({ cwd, on }) {
   if (!ctx?.roots?.length) return cwd ? [{ id: "", dir: cwd, whole: true }] : [];
   return ctx.roots.map(({ id, label, dir, optional }) => ({ id, label, dir, optional }));
 }
+// Identifies what the panel shows: the machine plus every section folder. When it changes,
+// refresh drops all section state and clears the commit boxes; render compares it on every redraw.
 function key() {
   const loc = location();
   return JSON.stringify({ on: loc.on, dirs: sectionsFor(loc).map((s) => s.dir) });
@@ -34,7 +39,9 @@ function key() {
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
 // the folder watch would see it, and every refresh would start the next one.
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
+// The most changed files listed per section; past it the section says so (`limited`).
 const LIMIT = 1000;
+// Counts the lines in `text`; a trailing newline does not start another line.
 const countLines = (text) => text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;
 
 // Numbers each diff line once, so a frame only draws the rows on screen.
@@ -116,7 +123,11 @@ function statusFiles(stdout, prefix, stats) {
   return { files, others, limited: entries.length - others > LIMIT };
 }
 
+// The panel: one section per folder from sectionsFor, each with its file list, commit box and
+// push button, over one diff preview of the file picked in any section.
 export default class Changes extends View {
+  // Prepares the commit boxes and starts loading. The 10-second timer is the fallback for what the
+  // folder watch misses: remote spaces, which are never watched, and folders that cannot be.
   init(_props, cx) {
     this.sections = []; this.state = {}; this.inputs = {}; this.rows = []; this.diffWidth = 0;
     this.collapsed = new Set(); this.handle = cx.focus_handle();
@@ -143,6 +154,9 @@ export default class Changes extends View {
     return this.inputs[id] = input;
   }
 
+  // Starts one watchFolder loop per section for a local context, at most once per context; each
+  // loop ends when the context changes. It watches the scanned folder (the repo top for a whole-repo
+  // section) and relies on READ: a git write under .git would wake the watch after every refresh.
   watch(context, cx) {
     if (context.on || this.watching === context) return;
     this.watching = context;
@@ -156,8 +170,13 @@ export default class Changes extends View {
     });
   }
 
+  // Whether a commit or push is running in any section; refresh waits until it ends.
   busy() { return Object.values(this.state).some((s) => s.busy); }
 
+  // Rescans every section, one after another, and reloads the open diff. A new key() first resets
+  // all state, the selection and the watch. It does nothing while a scan or git action runs; act
+  // refreshes when it finishes. An optional section whose folder fails to scan is hidden rather than
+  // shown as an error. The first changed file opens unless the person closed the preview.
   refresh(cx) {
     if (this.loading || this.busy()) return;
     const loc = location(), next = key();
@@ -206,8 +225,14 @@ export default class Changes extends View {
     openHistory(run, spaces, { label: name, repos: [{ id: "repo", label: name, dir: plain.repo, tagPrefix: null }] });
   }
 
+  // The sections to draw: every one with state, minus optional ones whose folder is missing.
   visible() { return this.sections.filter((sec) => this.state[sec.id] && !this.state[sec.id].missing); }
 
+  // Fills the diff preview with `open`'s changes, if it is still the file shown in `context`.
+  // A new file (untracked, or added before the first commit) is read from disk as all-added lines,
+  // which also recounts its `add`; other files use `git diff` against HEAD, or against the index
+  // before the first commit. Binary files get a one-line note, and the preview is capped at 1500
+  // lines of 4000 characters. Throws when git fails; refresh and pick show the error.
   async load(open, context) {
     const s = this.state[open.sid], file = s?.files.find((f) => f.path === open.path);
     if (!file) return;
@@ -230,11 +255,14 @@ export default class Changes extends View {
     if (this.context === context && this.open === open) this.setLines(lines.slice(0, 1500).map(line => line.length > 4000 ? line.slice(0, 4000) + "… (line truncated)" : line));
   }
 
+  // Replaces the diff rows and the scroll width, estimated at 7px a character plus the gutter.
   setLines(lines) {
     this.rows = diffRows(lines);
     this.diffWidth = Math.max(300, ...lines.map(line => line.length * 7 + 50));
   }
 
+  // Shows `path`'s diff, or closes the preview when it is already shown. A closed preview stays
+  // closed across refreshes (`closed`) instead of reopening the first file.
   pick(sid, path, cx) {
     const same = this.open?.sid === sid && this.open?.path === path;
     this.open = same ? null : { sid, path }; this.setLines([]);
@@ -281,6 +309,8 @@ export default class Changes extends View {
     if (s?.ahead) this.act(id, "Pushing…", [[["push"], s.repo]], null, cx);
   }
 
+  // One diff line: a hunk header, or a numbered added, removed or context line. Its 20px height
+  // must match the row height given to v_virtual_list in render.
   diffRow({ kind, number, text }, t) {
     if (kind === "@") return div().w_full().px(12).h(20).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
     return h_flex().w_full().h(20).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
@@ -288,6 +318,8 @@ export default class Changes extends View {
       .child(div().flex_1().min_w(0).truncate().child(text));
   }
 
+  // One changed file: status letter, its folder (dimmed) and name relative to the section, and its
+  // line counts. Clicking it toggles its diff.
   fileRow(sid, f, t) {
     const parts = f.short.split("/"), name = parts.pop(), open = this.open?.sid === sid && this.open?.path === f.path;
     return h_flex().id(`change-${sid}-${f.path}`).h(28).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer().when(open, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(sid, f.path, cx))
@@ -296,6 +328,8 @@ export default class Changes extends View {
       .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
   }
 
+  // One section: a collapsible header (labelled workspace sections only) with repo, branch, commits
+  // to push and line totals; its file list; notes; and the commit box with Commit and Push.
   section(sec, t) {
     const s = this.state[sec.id], shut = this.collapsed.has(sec.id), repoName = s.repo?.split("/").pop() ?? "";
     const add = s.files.reduce((n, f) => n + f.add, 0), del = s.files.reduce((n, f) => n + f.del, 0);
@@ -325,6 +359,8 @@ export default class Changes extends View {
           .when(s.ahead > 0, (r) => r.child(button(`push-${sec.id}`, s.busy === "Pushing…" ? s.busy : `Push ↑${s.ahead}`, !s.busy && !this.loading, (_e, cx) => this.push(sec.id, cx)))))));
   }
 
+  // Draws the header totals, the sections and the diff list. It refreshes here when key()
+  // changes, since moving focus to another folder redraws the panel without a timer tick.
   render(cx) {
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme(), shown = this.visible(), files = shown.flatMap((sec) => this.state[sec.id].files);

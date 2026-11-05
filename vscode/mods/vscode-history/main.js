@@ -40,20 +40,33 @@ function focusPlace() {
   return { cwd: pane?.cwd || f?.cwd || space?.folder || null, remote: Boolean(space?.machine) };
 }
 
+// Commits read per page; the "Load more" row at the end of the list adds another page.
 const PAGE = 300;
+// Graph geometry in px: ROW is a commit row's height (the virtual list needs every row the same),
+// LANE the width of one lane column, PAD the space left and right of the lanes.
 const ROW = 24, LANE = 14, PAD = 6;
+// Shared-state key the dialog copy sets (to Date.now()) after a git write; every History tab
+// reloads when it differs from the value it last saw.
 const CHANGED = "vscode-history.changed";
+// Field and record separators for git --format strings: ASCII unit and record separators, which
+// never appear in names or subjects, so splitting on them is safe.
 const SEP = "\x1f", END = "\x1e";
 // Reads write nothing under .git, so polling never disturbs the repo or an agent's git.
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
+// Runs a read-only git command in `dir`; resolves with exec's result, rejects if git can't start.
 const git = (dir, args) => exec("git", [...READ, ...args], { cwd: dir });
+// English month abbreviations for when(), so dates read the same whatever the system locale.
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// Formats Unix seconds (git's %at and %ct) as local time, "5 Nov 2026 14:03".
 function when(seconds) {
   const d = new Date(seconds * 1000), p = (n) => String(n).padStart(2, "0");
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// Copies `text` to the clipboard and confirms with a toast naming `what`. It uses pbcopy, so it
+// works on macOS only; elsewhere it shows a "Copy failed" toast. The text goes in as $1, never
+// through shell quoting. vscode-statusbar has the same helper.
 function copy(text, what) {
   exec("sh", ["-c", 'printf %s "$1" | pbcopy', "copy", text])
     .then((r) => notify(r.code === 0 ? { title: `Copied ${what}`, body: text, timeout: 2000 } : { title: "Copy failed", body: r.stderr, level: "error" }))
@@ -141,7 +154,11 @@ function diffRows(lines) {
   });
 }
 
+// The History tab, and also its checkout and branch dialogs: a copy opened as an overlay is a
+// dialog (initDialog, renderDialog), any other copy is the tab.
 export default class History extends View {
+  // Sets up the tab from its props (see the header) or hands over to initDialog for an overlay.
+  // The tab re-reads branch tips every 10 s (poll) to catch commits made elsewhere.
   init(initial, cx) {
     const p = initial ?? props() ?? {};
     if (p.overlay) return this.initDialog(p, cx);
@@ -192,6 +209,7 @@ export default class History extends View {
     });
   }
 
+  // The selected repo entry from props, or undefined when there is none.
   repo() { return this.p.repos.find((r) => r.id === this.repoId); }
 
   // props.select (and select_file) open History on a commit, once.
@@ -213,6 +231,10 @@ export default class History extends View {
     return this.repoInfo[repo.id] = { root, prefix, remotes };
   }
 
+  // Reads the selected repo's history (this.limit commits, scope and remote filters applied) and
+  // lays out its graph. Each load takes a fresh token, so a slower earlier load that finishes
+  // later is dropped. Without a repo, or on a git failure, it sets this.error instead. An open
+  // commit that is no longer listed closes its details panel.
   load(cx) {
     const repo = this.repo(), token = {};
     if (!repo) {
@@ -249,18 +271,26 @@ export default class History extends View {
     return `${head?.stdout ?? ""}${r?.stdout ?? ""}`;
   }
 
+  // Reloads only when refStamp changed since the last load; skips while loading or before the
+  // repo's info is known. Working-tree edits never trigger it, only ref moves.
   poll(cx) {
     const info = this.repoInfo[this.repoId];
     if (this.loading || !info) return;
     cx.spawn(async (cx) => { if ((await this.refStamp(info.root)) !== this.stamp) this.load(cx); });
   }
 
+  // Changes one header filter (repoId, scope or remote), then starts again from the first page
+  // with no commit open. Picking the current value does nothing.
   set(field, value, cx) {
     if (this[field] === value) return;
     this[field] = value; this.limit = PAGE; this.open = null; this.details = null;
     this.load(cx);
   }
 
+  // Opens the details panel for commit `c`, or closes it when `c` is already open. It reads the
+  // full message, author and committer, and the changed files (only the folder's in folder scope);
+  // `file` (a path relative to the folder or the repo root) then opens that file's diff too.
+  // Results land on the details object this call made, so a later toggle simply replaces it.
   toggle(c, cx, file) {
     if (this.open === c.hash) { this.open = null; this.details = null; cx.notify(); return; }
     this.open = c.hash; this.details = { hash: c.hash, loading: true };
@@ -284,6 +314,9 @@ export default class History extends View {
     cx.notify();
   }
 
+  // Shows the open commit's diff for `file`, or hides it when it is already shown. Like toggle's
+  // file list, a merge diffs against its first parent. Headers before the first hunk are dropped
+  // and at most 1500 lines are kept; a git failure shows its stderr as the diff.
   showDiff(file, cx) {
     const details = this.details, info = this.repoInfo[this.repoId];
     if (details.file === file.path) { details.file = null; details.rows = null; cx.notify(); return; }
@@ -299,12 +332,16 @@ export default class History extends View {
     cx.notify();
   }
 
+  // Opens a second copy of this mod as a dialog: `dialog` is "checkout" (extra: target, detached,
+  // short) or "branch" (extra: hash, short). initDialog, confirm and renderDialog read these props.
   openDialog(dialog, extra) {
     const info = this.repoInfo[this.repoId];
     openOverlay({ mod: "vscode-history", kind: "dialog", width: 440, height: dialog === "branch" ? 210 : 200,
       props: { dialog, root: info.root, repo: this.repo().label, ...extra } });
   }
 
+  // Splits a terminal below the focused pane running `git show --stat -p` for `c`; the pane
+  // closes when git (and its pager) exits.
   openTerminal(c) {
     const info = this.repoInfo[this.repoId];
     run("pane.split", { direction: "down", argv: ["git", "-C", info.root, "show", "--stat", "-p", c.hash] });
@@ -353,9 +390,13 @@ export default class History extends View {
         .when(!head, (d) => d.bg(color)));
   }
 
+  // The graph column's width in px, shared by rows and the column header; capped at 16 lanes.
   graphWidth() { return PAD * 2 + Math.min(this.width, 16) * LANE; }
+  // Whether the pane is narrower than COMPACT; false until the first size report.
   compact() { return (this.paneWidth ?? Infinity) < COMPACT; }
 
+  // Draws one ref from refs(): local branches and HEAD filled, remote branches and tags outlined,
+  // the checked-out branch in bold.
   badge(ref, t) {
     const color = ref.kind === "tag" ? t.muted : ref.kind === "remote" ? t.ansi5 : t.accent;
     return h_flex().flex_none().h(18).px(6).gap(4).items_center().rounded(4).text_size(11)
@@ -365,6 +406,8 @@ export default class History extends View {
       .child(ref.kind === "tag" ? `◇ ${ref.name}` : ref.name);
   }
 
+  // Draws one commit row, ROW px tall. Its Date, Author and Commit widths (150, 170, 80) must match
+  // the column header in render.
   row(c, t) {
     const open = this.open === c.hash, merge = c.parents.length > 1;
     // A virtual list row: no handlers here, clicks arrive through on_item_click.
@@ -380,12 +423,17 @@ export default class History extends View {
         .child(div().w(80).flex_none().text_color(t.dim).font_family(settings().font_family ?? "Menlo").child(c.hash.slice(0, 7))));
   }
 
+  // Draws a small outlined button for the details panel; `danger` draws it in the blocked colour.
   button(id, label, action, t, danger) {
     return div().id(id).h(26).px(10).flex().flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
       .border_1().border_color(danger ? t.blocked : t.input).text_color(danger ? t.blocked : t.foreground)
       .hover((s) => s.bg(t.hover)).on_click(action).child(label);
   }
 
+  // Draws the panel docked under the list for the open commit `c`: metadata and actions on the
+  // left, changed files on the right (stacked when compact), the selected file's diff below. It
+  // takes 42% of the tab's height. A parent hash opens that commit when it is loaded, else copies
+  // it. The checkout and branch buttons open dialogs; nothing here writes to git directly.
   detailsPanel(c, t) {
     const d = this.details;
     const info = this.repoInfo[this.repoId];
@@ -428,6 +476,8 @@ export default class History extends View {
       .when(Boolean(diff), (e) => e.child(diff));
   }
 
+  // Draws one diffRows() line, 18 px tall to match detailsPanel's diff height estimate. The "18"
+  // appended to a theme colour is a hex alpha, so those colours must be #rrggbb.
   diffRow({ kind, number, text }, i, t) {
     if (kind === "@") return div().id(`d${i}`).w_full().px(10).h(18).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
     return h_flex().id(`d${i}`).w_full().h(18).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
@@ -435,6 +485,8 @@ export default class History extends View {
       .child(div().flex_1().min_w(0).truncate().child(text));
   }
 
+  // Draws a segmented control from [value, label] pairs, highlighting `value`; a click calls
+  // onPick(value, cx). Values become element ids (`${id}-${value}`), so they must be distinct.
   segmented(id, options, value, onPick, t) {
     return h_flex().flex_none().h(24).rounded(6).border_1().border_color(t.input).overflow_hidden().text_size(12)
       .children(options.map(([v, label]) => div().id(`${id}-${v}`).h_full().px(10).flex().items_center().cursor_pointer()
@@ -442,6 +494,9 @@ export default class History extends View {
         .on_click((_e, cx) => onPick(v, cx)).child(label)));
   }
 
+  // Draws the tab: header filters, column headings, the commit list and the details panel. A
+  // render is also where follow mode notices focus moves and where a dialog's git write (CHANGED)
+  // triggers a reload. A dialog copy draws renderDialog instead.
   render(cx) {
     if (this.dialog) return this.renderDialog(cx);
     const t = theme();
@@ -500,6 +555,10 @@ export default class History extends View {
     } else this.handle.focus();
   }
 
+  // Runs the dialog's git write: checkout (refused while tracked files have changes; untracked
+  // files don't count) or creating a branch at the commit after checking its name. The writes use
+  // exec, not git(), since READ is for reads. Success sets CHANGED so every History tab reloads,
+  // then closes the dialog; failure shows the error and lets the person try again.
   confirm(cx) {
     const p = this.dialog;
     if (this.busy) return;
@@ -526,6 +585,8 @@ export default class History extends View {
     cx.notify();
   }
 
+  // Draws the checkout or branch dialog, warning that a checkout moves every terminal in the repo.
+  // Escape closes it; Enter confirms a checkout, while the branch name field submits on its own.
   renderDialog(cx) {
     const t = theme(), p = this.dialog;
     const title = p.dialog === "branch" ? `Create a branch at ${p.short}` : p.detached ? `Check out commit ${p.short}?` : `Switch to ${p.target}?`;
