@@ -145,12 +145,7 @@ export default class Files extends View {
         const marks = {}, missing = new Set(), errors = {};
         for (const root of context.roots) {
           try {
-            await this.loadFolder(root.id, "", context);
-            for (const folder of [...this.folders].filter(f => f.startsWith(at(root.id, "")))) {
-              if (!this.current(context)) return;
-              await this.loadFolder(root.id, folder.slice(root.id.length + 1), context);
-            }
-            marks[root.id] = await changeMarks(root.dir, context.on);
+            marks[root.id] = await this.loadRoot(root, context);
           } catch (e) {
             if (root.optional) missing.add(root.id); else errors[root.id] = String(e);
           }
@@ -160,6 +155,17 @@ export default class Files extends View {
         this.watch(context, cx);
       } finally { if (this.context === context) this.loading = false; cx.notify(); }
     });
+  }
+
+  // A root's top folder and every folder open under it, then its git status letters. Stops early
+  // (returning nothing) if the focused folder changes meanwhile; the caller checks that too.
+  async loadRoot(root, context) {
+    await this.loadFolder(root.id, "", context);
+    for (const folder of [...this.folders].filter(f => f.startsWith(at(root.id, "")))) {
+      if (!this.current(context)) return undefined;
+      await this.loadFolder(root.id, folder.slice(root.id.length + 1), context);
+    }
+    return changeMarks(root.dir, context.on);
   }
 
   toggle(rid, rel, cx) {

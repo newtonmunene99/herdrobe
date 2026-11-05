@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, run, layout } from "herdr";
-import { contextFor, openHistory } from "./context.js";
+import { contextFor, openHistory, ROOT_IDS } from "./context.js";
 
 // In vscode-inbox this panel is a tab of the right sidebar ("secondary-body"), whose tab strip
 // already says Changes | History, so the panel drops its own title and History button there.
@@ -62,11 +62,25 @@ async function scan(section, on) {
   const dir = section.whole ? repo : section.dir;
   const status = await run(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo);
   if (status.code !== 0) throw new Error(status.stderr);
-  const head = await run(["rev-parse", "--verify", "HEAD"], repo);
+  const hasHead = (await run(["rev-parse", "--verify", "HEAD"], repo)).code === 0;
+  const stats = numstats(await lineDiffs(run, dir, hasHead));
+  const { files, others, limited } = statusFiles(status.stdout, prefix, stats);
+  const branch = (await run(["rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout.trim();
+  // No upstream (a fresh branch): no push button rather than a guess at the remote.
+  const ahead = await run(["rev-list", "--count", "@{u}..HEAD"], repo);
+  return { repo, prefix, dir, files, others, limited, hasHead,
+    branch: branch === "HEAD" ? "detached" : branch, ahead: ahead.code === 0 ? Number(ahead.stdout.trim()) || 0 : 0 };
+}
+
+// The diffs that give line counts: against HEAD, or, before the first commit, staged plus unstaged.
+async function lineDiffs(run, dir, hasHead) {
+  const numstat = (...from) => run(["diff", ...from, "--numstat", "-z", "--no-renames", "--", "."], dir);
+  return hasHead ? [await numstat("HEAD")] : [await numstat("--cached"), await numstat()];
+}
+
+// Added and deleted lines per repo-relative path, summed over `git diff --numstat -z` results.
+function numstats(results) {
   const stats = {};
-  const results = head.code === 0
-    ? [await run(["diff", "HEAD", "--numstat", "-z", "--no-renames", "--", "."], dir)]
-    : [await run(["diff", "--cached", "--numstat", "-z", "--no-renames", "--", "."], dir), await run(["diff", "--numstat", "-z", "--no-renames", "--", "."], dir)];
   for (const result of results) {
     if (result.code !== 0) throw new Error(result.stderr);
     for (const entry of result.stdout.split("\0")) {
@@ -76,22 +90,30 @@ async function scan(section, on) {
       stats[path] = { add: old.add + (Number(a) || 0), del: old.del + (Number(d) || 0), binary: a === "-" };
     }
   }
+  return stats;
+}
+
+// One letter for a porcelain XY code: U conflicted, D deleted, A added or untracked, M modified.
+function statusLetter(xy) {
+  if (xy.includes("U") || xy === "AA" || xy === "DD") return "U";
+  if (xy.includes("D")) return "D";
+  if (xy === "??" || xy.includes("A")) return "A";
+  return "M";
+}
+
+// The section's files from `git status --porcelain=v1 -z`, up to LIMIT; `others` counts changes
+// elsewhere in the repo, outside the section's folder.
+function statusFiles(stdout, prefix, stats) {
   const files = [];
   let others = 0;
-  const entries = status.stdout.split("\0").filter(Boolean);
+  const entries = stdout.split("\0").filter(Boolean);
   for (const entry of entries) {
-    const xy = entry.slice(0, 2), path = entry.slice(3), fresh = xy === "??";
+    const xy = entry.slice(0, 2), path = entry.slice(3);
     if (!path.startsWith(prefix)) { others++; continue; }
     if (files.length >= LIMIT) continue;
-    const conflict = xy.includes("U") || xy === "AA" || xy === "DD";
-    const s = conflict ? "U" : xy.includes("D") ? "D" : fresh || xy.includes("A") ? "A" : "M";
-    files.push({ path, short: path.slice(prefix.length), status: s, fresh, ...(stats[path] ?? { add: 0, del: 0 }) });
+    files.push({ path, short: path.slice(prefix.length), status: statusLetter(xy), fresh: xy === "??", ...(stats[path] ?? { add: 0, del: 0 }) });
   }
-  const branch = (await run(["rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout.trim();
-  // No upstream (a fresh branch): no push button rather than a guess at the remote.
-  const ahead = await run(["rev-list", "--count", "@{u}..HEAD"], repo);
-  return { repo, prefix, dir, files, others, limited: entries.length - others > LIMIT, hasHead: head.code === 0,
-    branch: branch === "HEAD" ? "detached" : branch, ahead: ahead.code === 0 ? Number(ahead.stdout.trim()) || 0 : 0 };
+  return { files, others, limited: entries.length - others > LIMIT };
 }
 
 export default class Changes extends View {
@@ -100,7 +122,7 @@ export default class Changes extends View {
     this.collapsed = new Set(); this.handle = cx.focus_handle();
     // InputState.new throws inside render, and refresh can run from render when the focused
     // folder changes, so every section id sectionsFor can return gets its box up front.
-    for (const id of ["", "build", "define"]) this.input(id);
+    for (const id of ["", ...ROOT_IDS]) this.input(id);
     this.refresh(cx);
     cx.timer.every(10000, (cx) => this.refresh(cx));
   }

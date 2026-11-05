@@ -30,32 +30,43 @@ function trackInbox(list) {
   let dirty = !shared(INBOX);
   for (const a of list) {
     const was = box.prev[a.address];
-    const s = a.status;
-    if (was === s) continue;
+    if (was === a.status) continue;
     dirty = true;
-    box.since[a.address] = now;
-    box.prev[a.address] = s;
-    // New work: whatever it finished before is no longer the news.
-    if (s === "working") { delete box.finished[a.address]; delete box.settled[a.address]; }
-    // Needing an answer replaces "finished", so answering it can't bring back a stale card.
-    if (s === "blocked") delete box.finished[a.address];
-    // Herdr's "done" means it finished while nobody was looking (even the focused agent, when
-    // the window is in the background): that always counts. Working -> idle means it was seen
-    // finishing, or glanced at before we saw "done": only counts if it isn't the focused one.
-    // A focused agent that lands here is settled by settleLooked() once actually looked at.
-    const finished = s === "done" || (was === "working" && s === "idle" && !a.focused);
-    if (finished && !box.finished[a.address] && !box.settled[a.address]) box.finished[a.address] = now;
+    noteChange(box, a, was, now);
   }
-  // Forget terminals that are gone, once their last stamp is a week old.
+  if (forgetGone(box, now)) dirty = true;
+  if (dirty) setShared(INBOX, box);
+}
+
+// Records agent `a` moving from status `was` to its current one.
+function noteChange(box, a, was, now) {
+  const s = a.status;
+  box.since[a.address] = now;
+  box.prev[a.address] = s;
+  // New work: whatever it finished before is no longer the news.
+  if (s === "working") { delete box.finished[a.address]; delete box.settled[a.address]; }
+  // Needing an answer replaces "finished", so answering it can't bring back a stale card.
+  if (s === "blocked") delete box.finished[a.address];
+  // Herdr's "done" means it finished while nobody was looking (even the focused agent, when
+  // the window is in the background): that always counts. Working -> idle means it was seen
+  // finishing, or glanced at before we saw "done": only counts if it isn't the focused one.
+  // A focused agent that lands here is settled by settleLooked() once actually looked at.
+  const finished = s === "done" || (was === "working" && s === "idle" && !a.focused);
+  if (finished && !box.finished[a.address] && !box.settled[a.address]) box.finished[a.address] = now;
+}
+
+// Forgets terminals that are gone, once their last stamp is a week old. True if any went.
+function forgetGone(box, now) {
   const live = new Set(terminals().map((t) => t.address));
+  let gone = false;
   for (const address of Object.keys(box.prev)) {
     if (live.has(address)) continue;
     const last = Math.max(box.since[address] ?? 0, box.finished[address] ?? 0, box.settled[address] ?? 0);
     if (now - last < WEEK) continue;
     for (const k of ["prev", "since", "finished", "settled"]) delete box[k][address];
-    dirty = true;
+    gone = true;
   }
-  if (dirty) setShared(INBOX, box);
+  return gone;
 }
 
 // A finished agent that stays focused, with the Herdr window in front, for LOOK_MS has been
@@ -162,26 +173,32 @@ export default class StatusBar extends View {
     const live = new Set(all.map((s) => s.id));
     for (const id of Object.keys(own)) if (!live.has(id)) { delete own[id]; changed = true; }
 
-    for (const space of all) {
-      // Contexts are local checkouts; a remote space keeps Herdr's naming.
-      if (space.machine) continue;
-      const mine = own[space.id];
-      if (space.named && space.name !== mine) {
-        if (mine !== undefined) { delete own[space.id]; changed = true; }
-        continue;
-      }
-      const want = spaceContextName(space, byTab);
-      // No terminals in a context left: "" hands the name back to Herdr, which follows the folder.
-      const next = want ?? (mine !== undefined ? "" : null);
-      if (next === null || (want && space.named && space.name === want)) continue;
-      const attempt = `${space.id}:${next}`;
-      if (this.tried.has(attempt)) continue;
-      this.tried.add(attempt);
-      run("space.rename", { id: space.id, name: next });
-      if (want) own[space.id] = want; else delete own[space.id];
-      changed = true;
-    }
+    for (const space of all) if (this.renameSpace(space, own, byTab)) changed = true;
     if (changed) saveOwn(own);
+  }
+
+  // Names one space after its context, or hands the name back to Herdr when it has none left.
+  // Returns true when `own` (the names this mod gave) changed.
+  renameSpace(space, own, byTab) {
+    // Contexts are local checkouts; a remote space keeps Herdr's naming.
+    if (space.machine) return false;
+    const mine = own[space.id];
+    // Renamed by the person: never touched again.
+    if (space.named && space.name !== mine) {
+      if (mine === undefined) return false;
+      delete own[space.id];
+      return true;
+    }
+    const want = spaceContextName(space, byTab);
+    // No terminals in a context left: "" hands the name back to Herdr, which follows the folder.
+    const next = want ?? (mine !== undefined ? "" : null);
+    if (next === null || (want && space.named && space.name === want)) return false;
+    const attempt = `${space.id}:${next}`;
+    if (this.tried.has(attempt)) return false;
+    this.tried.add(attempt);
+    run("space.rename", { id: space.id, name: next });
+    if (want) own[space.id] = want; else delete own[space.id];
+    return true;
   }
 
   copy(text, title) {

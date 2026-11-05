@@ -79,24 +79,47 @@ function refs(decoration, remotes, tagPrefix) {
   return out;
 }
 
+// The `git log` for a page of history: one more commit than shown, to know if there are more.
+// Scoped to a folder, it lists only that folder's commits, and only tags under its prefix.
+function logArgs(repo, info, scoped, remote, limit) {
+  const args = ["log", "--topo-order", "--parents", "--branches", "--tags", ...(remote ? ["--remotes"] : []), "HEAD",
+    "-n", String(limit + 1), `--format=%H${SEP}%P${SEP}%D${SEP}%an${SEP}%at${SEP}%s${END}`];
+  if (scoped && repo.tagPrefix) args.push("--decorate-refs=refs/heads", "--decorate-refs=refs/remotes", `--decorate-refs=refs/tags/${repo.tagPrefix}*`);
+  if (scoped) args.push("--", info.prefix);
+  return args;
+}
+
+// logArgs' output as commits.
+function parseLog(stdout, remotes, tagPrefix) {
+  return stdout.split(END).map((s) => s.replace(/^\n/, "")).filter(Boolean).map((line) => {
+    const [hash, parents, deco, author, at, subject] = line.split(SEP);
+    return { hash, parents: parents ? parents.split(" ") : [], refs: refs(deco, remotes, tagPrefix), author, at: Number(at), subject };
+  });
+}
+
+// The lane already waiting for `hash`, else the leftmost free one, else a new one at the right.
+function claim(lanes, hash) {
+  let i = lanes.indexOf(hash);
+  if (i >= 0) return i;
+  i = lanes.indexOf(null);
+  if (i < 0) i = lanes.length;
+  lanes[i] = hash;
+  return i;
+}
+
 // Gives every commit a column and the lanes around it. Columns stay put while a lane lives,
 // so a lane keeps its colour; freed columns are reused from the left.
 function layout(commits) {
   const lanes = [];
   let width = 1;
   for (const c of commits) {
-    let col = lanes.indexOf(c.hash);
-    const hasChild = col >= 0;
-    if (col < 0) { col = lanes.indexOf(null); if (col < 0) col = lanes.length; lanes[col] = c.hash; }
+    const hasChild = lanes.includes(c.hash);
+    const col = claim(lanes, c.hash);
     const before = lanes.slice();
     for (let j = 0; j < lanes.length; j++) if (j !== col && lanes[j] === c.hash) lanes[j] = null;
     lanes[col] = c.parents[0] ?? null;
     const parentCols = c.parents.length ? [col] : [];
-    for (const p of c.parents.slice(1)) {
-      let pc = lanes.indexOf(p);
-      if (pc < 0) { pc = lanes.indexOf(null); if (pc < 0) pc = lanes.length; lanes[pc] = p; }
-      parentCols.push(pc);
-    }
+    for (const p of c.parents.slice(1)) parentCols.push(claim(lanes, p));
     while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
     c.graph = { col, hasChild, before, after: lanes.slice(), parentCols };
     width = Math.max(width, before.length, lanes.length, col + 1);
@@ -171,6 +194,14 @@ export default class History extends View {
 
   repo() { return this.p.repos.find((r) => r.id === this.repoId); }
 
+  // props.select (and select_file) open History on a commit, once.
+  selectRequested(cx) {
+    if (!this.p.select || this.selectedOnce) return;
+    this.selectedOnce = true;
+    const c = this.commits.find((x) => x.hash.startsWith(this.p.select));
+    if (c) this.toggle(c, cx, this.p.select_file);
+  }
+
   // Root and the folder's path inside it; null when the folder is missing (an optional root).
   async info(repo) {
     if (this.repoInfo[repo.id] !== undefined) return this.repoInfo[repo.id];
@@ -196,28 +227,16 @@ export default class History extends View {
         if (this.token !== token) return;
         if (!info) { this.commits = []; this.error = `${repo.dir} is not a git folder`; return; }
         const scoped = this.scope === "folder" && info.prefix;
-        const args = ["log", "--topo-order", "--parents", "--branches", "--tags", ...(this.remote ? ["--remotes"] : []), "HEAD",
-          "-n", String(this.limit + 1), `--format=%H${SEP}%P${SEP}%D${SEP}%an${SEP}%at${SEP}%s${END}`];
-        if (scoped && repo.tagPrefix) args.push("--decorate-refs=refs/heads", "--decorate-refs=refs/remotes", `--decorate-refs=refs/tags/${repo.tagPrefix}*`);
-        if (scoped) args.push("--", info.prefix);
-        const r = await git(info.root, args);
+        const r = await git(info.root, logArgs(repo, info, scoped, this.remote, this.limit));
         if (this.token !== token) return;
         if (r.code !== 0) throw new Error(r.stderr.trim());
-        const commits = r.stdout.split(END).map((s) => s.replace(/^\n/, "")).filter(Boolean).map((line) => {
-          const [hash, parents, deco, author, at, subject] = line.split(SEP);
-          return { hash, parents: parents ? parents.split(" ") : [], refs: refs(deco, info.remotes, scoped ? repo.tagPrefix : null), author, at: Number(at), subject };
-        });
+        const commits = parseLog(r.stdout, info.remotes, scoped ? repo.tagPrefix : null);
         this.more = commits.length > this.limit;
         this.commits = commits.slice(0, this.limit);
         this.width = layout(this.commits);
         this.stamp = await this.refStamp(info.root);
         if (this.open && !this.commits.some((c) => c.hash === this.open)) { this.open = null; this.details = null; }
-        // props.select (and select_file) open History on a commit, once.
-        if (this.p.select && !this.selectedOnce) {
-          this.selectedOnce = true;
-          const c = this.commits.find((x) => x.hash.startsWith(this.p.select));
-          if (c) this.toggle(c, cx, this.p.select_file);
-        }
+        this.selectRequested(cx);
       } catch (e) { if (this.token === token) this.error = String(e.message ?? e); }
       finally { if (this.token === token) this.loading = false; cx.notify(); }
     });

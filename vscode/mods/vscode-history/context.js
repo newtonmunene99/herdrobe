@@ -14,6 +14,10 @@
 //   spaceName: a name for a space whose terminals sit here (the status bar names unnamed spaces)
 // }
 
+// Every root id contextFor can return, so a mod can prepare per-root state up front
+// (vscode-changes creates each commit box before it renders). None here.
+export const ROOT_IDS = [];
+
 export function contextFor(_path) {
   return null;
 }
