@@ -1,0 +1,53 @@
+name: Bug
+description: Something in a layout looks or works wrong
+labels: [bug]
+body:
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Layout
+      options:
+        - vscode
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      placeholder: Clicking a file in Files opened an empty pane instead of ttt.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a space in a git repo
+        2. cmd-shift-e
+        3. Click README.md
+  - type: input
+    id: version
+    attributes:
+      label: Herdr version
+      description: Output of `herdr-app --version`
+      placeholder: herdr-app 0.1.13
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 26.1, Apple Silicon
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: herdr-app status
+      description: The `errors` part of `herdr-app status`, and any `*.error` file in ~/.config/herdr-app
+      render: json
+  - type: textarea
+    id: shot
+    attributes:
+      label: Screenshot
+      description: "`herdr-app shot` saves the window as a PNG. Check it for anything private first."

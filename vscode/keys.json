@@ -1,0 +1,15 @@
+{
+  "layout:vscode": {
+    "cmd-shift-e": "vscode-activitybar.files",
+    "cmd-shift-g": "vscode-activitybar.changes",
+    "cmd-shift-l": "vscode-statusbar.layouts",
+    "cmd-shift-h": "vscode-statusbar.history"
+  },
+  "layout:vscode-inbox": {
+    "cmd-shift-a": "vscode-activitybar.agents",
+    "cmd-shift-e": "vscode-activitybar.files",
+    "cmd-shift-g": "vscode-activitybar.changes",
+    "cmd-shift-h": "vscode-activitybar.history",
+    "cmd-shift-l": "vscode-statusbar.layouts"
+  }
+}

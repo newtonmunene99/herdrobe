@@ -1,0 +1,251 @@
+// VS Code-style status bar: a blue "remote" corner with the space's machine, then branch and
+// agents; the layout name on the right opens a picker of every layout. When context.js gives the
+// focused folder a workspace context, it also shows that context's badge, and keeps unnamed
+// spaces named after the context most of their terminals are in.
+import { View, div, svg } from "gpui-kit";
+import { h_flex, v_flex } from "gpui-base";
+import { spaces, agents, panes, terminals, focused, theme, run, shared, setShared, exec, notify, nextCommand, window, props, layouts, openOverlay, closeOverlay } from "herdr";
+import { contextFor, openHistory } from "./context.js";
+
+// The inbox: which agents finished and haven't been settled. Herdr turns "done" into "idle"
+// the moment anyone looks, so a glance makes a finished agent look handled; this keeps it until
+// the person settles it (vscode-agents' Settle). This bar owns the tracking because it is on
+// screen in both VS Code layouts from launch, so no finish is missed while another view or
+// layout is showing. vscode-agents, vscode-tabs and vscode-activitybar only read it.
+//   prev:     address -> last status seen (persisted: survives restarts and layout switches)
+//   since:    address -> ms of the last status change
+//   finished: address -> ms it finished
+//   settled:  address -> ms it was settled
+const INBOX = "vscode.inbox";
+const WEEK = 7 * 86400000;
+
+function readInbox() {
+  const s = shared(INBOX) ?? {};
+  return { prev: { ...s.prev }, since: { ...s.since }, finished: { ...s.finished }, settled: { ...s.settled } };
+}
+
+function trackInbox(list) {
+  const box = readInbox();
+  const now = Date.now();
+  let dirty = !shared(INBOX);
+  for (const a of list) {
+    const was = box.prev[a.address];
+    const s = a.status;
+    if (was === s) continue;
+    dirty = true;
+    box.since[a.address] = now;
+    box.prev[a.address] = s;
+    // New work: whatever it finished before is no longer the news.
+    if (s === "working") { delete box.finished[a.address]; delete box.settled[a.address]; }
+    // Needing an answer replaces "finished", so answering it can't bring back a stale card.
+    if (s === "blocked") delete box.finished[a.address];
+    // Herdr's "done" means it finished while nobody was looking (even the focused agent, when
+    // the window is in the background): that always counts. Working -> idle means it was seen
+    // finishing, or glanced at before we saw "done": only counts if it isn't the focused one.
+    // A focused agent that lands here is settled by settleLooked() once actually looked at.
+    const finished = s === "done" || (was === "working" && s === "idle" && !a.focused);
+    if (finished && !box.finished[a.address] && !box.settled[a.address]) box.finished[a.address] = now;
+  }
+  // Forget terminals that are gone, once their last stamp is a week old.
+  const live = new Set(terminals().map((t) => t.address));
+  for (const address of Object.keys(box.prev)) {
+    if (live.has(address)) continue;
+    const last = Math.max(box.since[address] ?? 0, box.finished[address] ?? 0, box.settled[address] ?? 0);
+    if (now - last < WEEK) continue;
+    for (const k of ["prev", "since", "finished", "settled"]) delete box[k][address];
+    dirty = true;
+  }
+  if (dirty) setShared(INBOX, box);
+}
+
+// A finished agent that stays focused, with the Herdr window in front, for LOOK_MS has been
+// looked at: settle it. Clicking straight past it (less than LOOK_MS) leaves it in Finished.
+const LOOK_MS = 5000;
+let looking = null; // { address, since }
+function settleLooked() {
+  const box = shared(INBOX);
+  const a = agents().find((x) => x.focused);
+  if (!a || !window()?.active || !box?.finished?.[a.address]) { looking = null; return; }
+  const now = Date.now();
+  if (looking?.address !== a.address) { looking = { address: a.address, since: now }; return; }
+  if (now - looking.since < LOOK_MS) return;
+  const next = { ...box, finished: { ...box.finished }, settled: { ...box.settled, [a.address]: now } };
+  delete next.finished[a.address];
+  setShared(INBOX, next);
+  looking = null;
+}
+
+// The names this mod gave spaces, { spaceId: name }. A space whose name differs from its entry
+// was renamed by the person and is never touched again. Losing this record only freezes names.
+const OWN = "spaceNames:v1";
+function loadOwn() {
+  try {
+    const raw = localStorage.getItem(OWN);
+    // Herdr's storage answers a missing key with undefined, not a browser's null.
+    return raw == null ? null : JSON.parse(raw);
+  } catch { return {}; }
+}
+function saveOwn(own) {
+  try { localStorage.setItem(OWN, JSON.stringify(own)); } catch { /* names just freeze */ }
+}
+// Before this record existed the mod renamed spaces once, to dotted names like these; adopt them
+// so they keep following their context too.
+const LOOKS_OURS = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/;
+
+// The context name (contextFor().spaceName) most of the space's terminals are in, by each pane's
+// live folder; the first terminal breaks a tie and terminals with no context do not count.
+function spaceContextName(space, byTab) {
+  const counts = new Map();
+  let first = null;
+  for (const tab of space.tabs) for (const pane of byTab.get(tab.id) ?? []) {
+    const name = contextFor(pane.cwd)?.spaceName;
+    if (!name) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+    first ??= name;
+  }
+  let best = null, most = 0;
+  for (const [name, n] of counts) if (n > most || (n === most && name === first)) { best = name; most = n; }
+  return best;
+}
+
+// Contexts describe checkouts on this computer, so a space on another machine never has one.
+function contextHere() {
+  const space = spaces().find((s) => s.active), f = focused();
+  if (!space || space.machine) return { space, ctx: null };
+  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+  return { space, ctx: contextFor(pane?.cwd || f?.cwd || space.folder) };
+}
+
+const ICON = (name) => `mods/vscode-statusbar/${name}.svg`;
+
+// Friendly names for the layout switcher; anything else shows its file name.
+const LAYOUT_NAMES = { vscode: "VS Code", "vscode-inbox": "VS Code · Inbox", main: "Herdr", terminals: "Terminals", win98: "Herdr 98" };
+const layoutName = (name) => LAYOUT_NAMES[name] ?? String(name ?? "");
+const MENU_ROW = 26;
+
+// Every layout, Herdr's own included, as a popup: this same mod opened with { layoutMenu: true }.
+function openLayoutMenu() {
+  openOverlay({ mod: "vscode-statusbar", kind: "popup", width: 220, height: layouts().length * MENU_ROW + 10, props: { layoutMenu: true } });
+}
+
+export default class StatusBar extends View {
+  init(_props, cx) {
+    // The layout popup copy only draws its list: no tracking, renaming or timers.
+    if (props()?.layoutMenu) return;
+    // keys.json binds cmd-shift-h to "vscode-statusbar.history" and cmd-shift-l to
+    // "vscode-statusbar.layouts": this bar is always shown, so the keys work from any view.
+    cx.spawn(async () => {
+      for (;;) {
+        const c = String(await nextCommand()).split(/[.:]/).pop();
+        const { ctx } = contextHere();
+        if (c === "history" && ctx?.history) openHistory(run, spaces, ctx.history);
+        if (c === "layouts") openLayoutMenu();
+      }
+    });
+    // Each rename is tried once per session: a refused one must not retry every tick.
+    this.tried = new Set();
+    cx.timer.every(2000, () => this.nameSpaces());
+    // Settles a finished agent once it has been looked at (see settleLooked): a cheap check.
+    cx.timer.every(1000, () => settleLooked());
+    this.nameSpaces();
+  }
+
+  nameSpaces() {
+    const all = spaces();
+    let own = loadOwn(), changed = false;
+    if (own === null) {
+      own = Object.fromEntries(all.filter((s) => s.named && LOOKS_OURS.test(s.name)).map((s) => [s.id, s.name]));
+      changed = true;
+    }
+    const byTab = new Map();
+    for (const pane of panes()) byTab.set(pane.tab, [...(byTab.get(pane.tab) ?? []), pane]);
+    const live = new Set(all.map((s) => s.id));
+    for (const id of Object.keys(own)) if (!live.has(id)) { delete own[id]; changed = true; }
+
+    for (const space of all) {
+      // Contexts are local checkouts; a remote space keeps Herdr's naming.
+      if (space.machine) continue;
+      const mine = own[space.id];
+      if (space.named && space.name !== mine) {
+        if (mine !== undefined) { delete own[space.id]; changed = true; }
+        continue;
+      }
+      const want = spaceContextName(space, byTab);
+      // No terminals in a context left: "" hands the name back to Herdr, which follows the folder.
+      const next = want ?? (mine !== undefined ? "" : null);
+      if (next === null || (want && space.named && space.name === want)) continue;
+      const attempt = `${space.id}:${next}`;
+      if (this.tried.has(attempt)) continue;
+      this.tried.add(attempt);
+      run("space.rename", { id: space.id, name: next });
+      if (want) own[space.id] = want; else delete own[space.id];
+      changed = true;
+    }
+    if (changed) saveOwn(own);
+  }
+
+  copy(text, title) {
+    exec("sh", ["-c", 'printf %s "$1" | pbcopy', "copy", text])
+      .then((r) => notify(r.code === 0 ? { title: title ?? "Copied", body: text, timeout: 2000 } : { title: "Copy failed", body: r.stderr, level: "error" }))
+      .catch((e) => notify({ title: "Copy failed", body: String(e), level: "error" }));
+  }
+
+  item(id, children, tip, action) {
+    const t = theme();
+    return h_flex().id(id).h_full().px(7).gap(4).items_center().flex_none()
+      .when(Boolean(action), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(action))
+      .when(Boolean(tip), (el) => el.tooltip(tip))
+      .children(children);
+  }
+
+  render() {
+    if (props()?.layoutMenu) return this.layoutMenu();
+    const t = theme();
+    const { space, ctx } = contextHere();
+    const badge = ctx?.badge;
+    const list = agents();
+    // Renders run on every agent change, which is exactly when the inbox needs updating.
+    trackInbox(list);
+    const working = list.filter((a) => a.status === "working").length;
+    const needs = list.filter((a) => a.status === "blocked").length;
+    // vscode-inbox only: finished agents not yet settled, oldest first (the next to look at).
+    const inbox = shared("layout") === "vscode-inbox";
+    const finishedAt = shared(INBOX)?.finished ?? {};
+    const finished = inbox ? list.filter((a) => a.status !== "blocked" && finishedAt[a.address])
+      .sort((x, y) => finishedAt[x.address] - finishedAt[y.address]) : [];
+    const current = layoutName(shared("layout"));
+    return h_flex().size_full().items_center().text_size(11.5).text_color(t.foreground)
+      .child(h_flex().id("remote").h_full().px(9).gap(5).items_center().flex_none().bg(t.accent).text_color(t.accent_foreground)
+        .cursor_pointer().hover((s) => s.opacity(0.9)).tooltip("Machines")
+        .on_click(() => run("app.settings", { section: "machines" }))
+        .child(svg(ICON("remote")).size(12))
+        .child(space?.machine ?? "This computer"))
+      .when(Boolean(space?.branch), (el) => el.child(this.item("branch", [svg(ICON("git-branch")).size(12), div().child(space.branch)], "Git branch")))
+      .when(Boolean(badge), (el) => el.child(this.item("context", [
+        div().text_color(t.accent).child(badge.mark ?? ""),
+        div().child(badge.text),
+      ], badge.tooltip, badge.copy ? () => this.copy(badge.copy, badge.copied) : null)))
+      .child(this.item("agents", [
+        svg(ICON("bot")).size(13),
+        div().child(`${list.length}`),
+        div().text_color(t.working).child(working ? `· ${working} working` : ""),
+      ], "Agents", () => run("agent.next")))
+      .when(needs > 0, (el) => el.child(this.item("needs", [div().size(7).rounded(4).bg(t.blocked), div().child(`${needs} needs you`)], "Go to the next agent", () => run("agent.next"))))
+      .when(finished.length > 0, (el) => el.child(this.item("finished", [div().size(7).rounded(4).bg(t.done), div().child(`${finished.length} finished`)],
+        "Go to the agent that finished first", () => run("pane.focus", { pane: finished[0].pane }))))
+      .child(div().flex_1())
+      .child(this.item("palette", [div().child("⇧⌘P Commands")], "Command palette", () => run("app.palette")))
+      .child(this.item("layout", [div().child(`Layout: ${current}`)], "Switch layout (cmd-shift-l)", () => openLayoutMenu()));
+  }
+
+  layoutMenu() {
+    const t = theme();
+    const now = shared("layout");
+    return v_flex().id("layout-menu").size_full().p(5).gap(1).bg(t.popover).text_size(12.5)
+      .children(layouts().map((name) => h_flex().id(`layout-${name}`).h(MENU_ROW).px(8).gap(8).items_center().flex_none().rounded(5)
+        .cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click(() => { closeOverlay(props().overlay); if (name !== now) run("layout.switch", { name }); })
+        .child(div().w(12).text_color(t.accent).child(name === now ? "✓" : ""))
+        .child(div().flex_1().truncate().text_color(name === now ? t.foreground : t.muted).child(layoutName(name)))));
+  }
+}

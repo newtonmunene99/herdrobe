@@ -1,0 +1,42 @@
+herdrobe: VS Code layout for the Herdr app
+Copyright 2026 Newton Munene
+
+This folder contains modified copies of files from the Herdr app
+(https://herdr.dev), Copyright the Herdr authors, licensed under the Apache
+License, Version 2.0:
+
+- mods/vscode-files/    from Herdr's shipped "files" mod (version 0.1.12).
+  Changes: can show extra folder roots from a workspace-context hook; clicking a
+  file opens it in ttt instead of the panel's preview. context.js is a new file.
+- mods/vscode-changes/  from Herdr's shipped "changes" mod (version 0.1.12).
+  Changes: can show one section per folder root from the same hook, listing and
+  committing only paths under each; adds a History button. context.js is a new
+  file.
+
+Their mod.json files record this as "cloned_from".
+
+- mods/vscode-agents/main.js includes the space-colour code (MARK,
+  PROJECT_COLORS, spaceColors, spaceColor) copied unchanged from Herdr's
+  shipped "picker" mod (version 0.1.13), so both give a space the same colour.
+  It says so where the copy starts.
+
+These icons are unmodified copies of icons shipped with Herdr's own mods
+(Apache 2.0, as above; most are Lucide icons, see below):
+
+- from "files": vscode-files/{chevron-down,chevron-right,file,folder}.svg,
+  vscode-changes/{chevron-down,chevron-right}.svg
+- from "changes": vscode-changes/changes.svg
+- from "workspace-chrome": vscode-activitybar/{files,git-branch,layers,settings}.svg,
+  vscode-statusbar/git-branch.svg, vscode-tabs/{plus,spinner}.svg,
+  vscode-titlebar/{panel-right,search}.svg
+- from "pane": vscode-tabs/{close,split-right}.svg
+
+vscode-activitybar/{bot,circle-user}.svg, vscode-statusbar/bot.svg and
+vscode-titlebar/panel-left.svg are from Lucide (https://lucide.dev).
+
+Lucide icons are licensed under the ISC License, and a few derive from Feather
+(MIT): see LICENSE-lucide.txt. All other files in mods/, layouts/ and themes/
+are original to this project.
+
+"VS Code" is a trademark of Microsoft. This layout imitates its look and is not
+affiliated with or endorsed by Microsoft.

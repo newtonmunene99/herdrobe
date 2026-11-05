@@ -1,0 +1,199 @@
+{
+  "id": "root",
+  "type": "column",
+  "titlebar": "none",
+  "traffic_lights": [
+    12,
+    11
+  ],
+  "preview": "layouts/vscode-inbox.svg",
+  "theme": {
+    "light": "vscode-light",
+    "dark": "vscode-dark"
+  },
+  "font": "Menlo",
+  "font_size": 13,
+  "ui_font": ".SystemUIFont",
+  "terminal_padding": [
+    6,
+    14
+  ],
+  "background": "chrome",
+  "children": [
+    {
+      "id": "titlebar",
+      "type": "block",
+      "size": {
+        "px": 35
+      },
+      "window_drag": true,
+      "content": {
+        "mod": "vscode-titlebar"
+      }
+    },
+    {
+      "id": "body",
+      "type": "row",
+      "children": [
+        {
+          "id": "activitybar",
+          "type": "block",
+          "size": {
+            "px": 42
+          },
+          "min": 42,
+          "max": 42,
+          "content": {
+            "mod": "vscode-activitybar"
+          }
+        },
+        {
+          "id": "sidebar",
+          "type": "column",
+          "size": {
+            "px": 300
+          },
+          "min": 180,
+          "max": 640,
+          "background": "background",
+          "children": [
+            {
+              "id": "sidebar-body",
+              "type": "stack",
+              "active": "agents-view",
+              "children": [
+                {
+                  "id": "agents-view",
+                  "type": "block",
+                  "content": {
+                    "mod": "vscode-agents"
+                  }
+                },
+                {
+                  "id": "files",
+                  "type": "block",
+                  "content": {
+                    "mod": "vscode-files"
+                  }
+                }
+              ]
+            }
+          ],
+          "radius": 8,
+          "border": {
+            "width": 1,
+            "color": "border"
+          }
+        },
+        {
+          "id": "work",
+          "type": "column",
+          "resizable": false,
+          "children": [
+            {
+              "id": "tabs",
+              "type": "block",
+              "size": {
+                "px": 35
+              },
+              "content": {
+                "mod": "vscode-tabs"
+              }
+            },
+            {
+              "id": "main",
+              "type": "block",
+              "background": "border",
+              "content": {
+                "tab": "active",
+                "pane": {
+                  "gap": 1,
+                  "radius": 0,
+                  "background": "background",
+                  "lone": true,
+                  "header": {
+                    "content": {
+                      "mod": "pane"
+                    },
+                    "height": 26,
+                    "position": "top",
+                    "reveal": "always"
+                  }
+                }
+              }
+            }
+          ],
+          "background": "background",
+          "radius": 8,
+          "border": {
+            "width": 1,
+            "color": "border"
+          }
+        },
+        {
+          "id": "secondary",
+          "type": "column",
+          "size": {
+            "px": 360
+          },
+          "min": 260,
+          "max": 720,
+          "background": "background",
+          "radius": 8,
+          "border": {
+            "width": 1,
+            "color": "border"
+          },
+          "children": [
+            {
+              "id": "secondary-body",
+              "type": "stack",
+              "active": "changes",
+              "header": {
+                "content": "tabs",
+                "height": 28
+              },
+              "children": [
+                {
+                  "id": "changes",
+                  "type": "block",
+                  "content": {
+                    "mod": "vscode-changes"
+                  },
+                  "title": "Changes"
+                },
+                {
+                  "id": "history",
+                  "type": "block",
+                  "content": {
+                    "mod": "vscode-history",
+                    "props": {
+                      "follow": true
+                    }
+                  },
+                  "title": "History"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "gap": 6,
+      "padding": [
+        0,
+        6
+      ]
+    },
+    {
+      "id": "statusbar",
+      "type": "block",
+      "size": {
+        "px": 22
+      },
+      "content": {
+        "mod": "vscode-statusbar"
+      }
+    }
+  ],
+  "gap": 6
+}

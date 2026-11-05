@@ -1,0 +1,4 @@
+# Herdr writes these into every mod folder on start; publish.sh skips them too.
+*.d.ts
+jsconfig.json
+.DS_Store

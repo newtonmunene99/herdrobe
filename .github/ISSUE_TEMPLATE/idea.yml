@@ -1,0 +1,24 @@
+name: Idea
+description: A change to an existing layout
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Layout
+      options:
+        - vscode
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What you'd like
+      description: What you'd see or do differently. A sketch or a screenshot of the real editor helps.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it would make easier.

@@ -1,0 +1,25 @@
+name: New layout
+description: Suggest (or offer to build) a new outfit for the wardrobe
+labels: [new layout]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: Short and lowercase; it prefixes every mod and theme (zed → zed-tabs, zed-dark).
+      placeholder: zed
+    validations:
+      required: true
+  - type: textarea
+    id: look
+    attributes:
+      label: What it looks like
+      description: The regions and what each shows. Screenshots of the app it's inspired by help.
+    validations:
+      required: true
+  - type: checkboxes
+    id: building
+    attributes:
+      label: Building it
+      options:
+        - label: I'd like to build it and open a PR (see CONTRIBUTING.md)

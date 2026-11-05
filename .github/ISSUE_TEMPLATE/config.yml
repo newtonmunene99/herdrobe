@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Herdr itself
+    url: https://herdr.dev
+    about: Problems with the Herdr app, its built-in layouts or herdr-core belong with Herdr (in the app, run app.feedback).
