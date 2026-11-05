@@ -2,3 +2,6 @@
 *.d.ts
 jsconfig.json
 .DS_Store
+
+# Throwaway complexity findings page (code-complexity skill).
+complexity-report.html

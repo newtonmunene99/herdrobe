@@ -32,7 +32,16 @@ Herdr reloads its home folder live, so test there, not in your clone:
    ```sh
    for m in ~/.config/herdr-app/mods/<layout>-*; do herdr-app check "$m"; done
    herdr-app status    # "errors": [] means every file loaded
+   oxlint              # in your clone's root: no errors
    ```
+
+   [oxlint](https://oxc.rs) (`brew install oxlint`) reads `.oxlintrc.json`: a function may have
+   at most 15 independent paths (a whole `switch` counts once) and nest at most 4 blocks deep.
+   Long functions, more than 6 parameters and deeply nested callbacks are warnings. Running it
+   in `~/.config/herdr-app` finds no config and checks nothing, so run it in the clone, or there
+   with `oxlint -c <clone>/.oxlintrc.json mods/<layout>-*`. If a function genuinely needs to
+   branch more (a flat dispatch table, say), disable the rule on that line with a reason:
+   `// eslint-disable-next-line complexity -- one branch per command`.
 
 Don't commit `*.d.ts` or `jsconfig.json`: Herdr writes them into every mod folder.
 

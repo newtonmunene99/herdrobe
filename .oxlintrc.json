@@ -1,0 +1,10 @@
+{
+  "ignorePatterns": ["**/*.d.ts"],
+  "rules": {
+    "complexity": ["error", { "max": 15, "variant": "modified" }],
+    "max-depth": ["error", 4],
+    "max-lines-per-function": ["warn", { "max": 80, "skipBlankLines": true, "skipComments": true }],
+    "max-params": ["warn", 6],
+    "max-nested-callbacks": ["warn", 4]
+  }
+}

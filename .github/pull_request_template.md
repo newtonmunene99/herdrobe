@@ -9,6 +9,7 @@
 ## Checklist
 
 - [ ] `herdr-app check` passes for every mod I touched, and `herdr-app status` shows no errors
+- [ ] `oxlint` in the repo root reports no errors
 - [ ] `RECIPE.md` matches the new behaviour (sizes, colors, keys, statuses)
 - [ ] Agent statuses still look right: working, blocked, done, idle
 - [ ] No `*.d.ts` or `jsconfig.json` committed
