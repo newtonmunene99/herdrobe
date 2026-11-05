@@ -334,7 +334,7 @@ export default class Changes extends View {
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.typing) { this.typing = null; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
       })
-      .child(h_flex().h(tabbed ? 30 : 42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
+      .child(h_flex().h(tabbed ? 36 : 35).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .when(!tabbed, (el) => el
           .child(div().font_semibold().child("Changes"))
           .child(div().id("history").px(6).h(20).flex().items_center().rounded(4).text_size(11).text_color(t.muted).cursor_pointer()

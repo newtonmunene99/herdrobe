@@ -485,7 +485,9 @@ export default class History extends View {
     if (this.more) items.push({ key: "more", more: true });
     const openCommit = this.details && this.commits.find((c) => c.hash === this.open);
     // Narrow, the controls wrap onto as many lines as they need instead of overflowing.
-    const header = h_flex().min_h(40).py(compact ? 6 : 0).flex_wrap().flex_none().px(12).gap(compact ? 6 : 10).items_center().border_b(1).border_color(t.border).text_size(12)
+    // 36 px with its border, like the pane headers beside it (layouts/vscode-inbox.json) and
+    // Changes' bar: 5 px around the 24 px controls, so wrapping lines keep the same spacing.
+    const header = h_flex().min_h(36).py(compact ? 5 : 0).flex_wrap().flex_none().px(12).gap(compact ? 6 : 10).items_center().border_b(1).border_color(t.border).text_size(12)
       .when(!tabbed, (e) => e.child(div().font_semibold().text_size(13).child("History")))
       .when(this.p.repos.length > 1, (e) => e.child(div().text_color(t.dim).child("Repo")).child(this.segmented("repo", this.p.repos.map((r) => [r.id, r.label]), this.repoId, (v, cx) => this.set("repoId", v, cx), t)))
       .when(Boolean(info?.prefix), (e) => e.child(div().text_color(t.dim).child("Scope")).child(this.segmented("scope", [["folder", this.p.scopeLabel ?? "This folder"], ["repo", "Whole repo"]], this.scope, (v, cx) => this.set("scope", v, cx), t)))

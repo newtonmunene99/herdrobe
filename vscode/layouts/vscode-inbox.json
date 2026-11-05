@@ -115,7 +115,7 @@
                     "content": {
                       "mod": "pane"
                     },
-                    "height": 26,
+                    "height": 36,
                     "position": "top",
                     "reveal": "always"
                   }
@@ -151,7 +151,7 @@
               "active": "changes",
               "header": {
                 "content": "tabs",
-                "height": 28
+                "height": 35
               },
               "children": [
                 {

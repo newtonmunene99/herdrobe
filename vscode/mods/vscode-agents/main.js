@@ -212,7 +212,7 @@ export default class VscodeAgents extends View {
   header(t) {
     const all = spaces();
     const current = all.find((s) => s.id === this.filter);
-    const head = h_flex().h(30).px(10).gap(6).items_center().flex_none()
+    const head = h_flex().h(35).px(10).gap(6).items_center().flex_none()
       .child(div().flex_1().text_size(11).font_semibold().text_color(t.muted).child("AGENTS"))
       .child(h_flex().id("filter").h(20).px(7).gap(5).items_center().rounded(4).cursor_pointer()
         .border(1).border_color(current ? t.accent : t.input).text_size(11.5).text_color(t.foreground)
