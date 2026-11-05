@@ -17,9 +17,15 @@ import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gp
 import { exec, theme, settings, run, props, notify, openOverlay, closeOverlay, shared, setShared, focused, panes, spaces, layout as appLayout } from "herdr";
 import { contextFor } from "./context.js";
 
-// Narrower than this (points), rows show only graph and subject and the details panel stacks
-// its two halves: Date, Author and Commit alone take about 400, leaving subjects unreadable.
+// Narrower than this (points), the details panel stacks its two halves and the header controls
+// wrap. Rows never drop columns: they scroll sideways instead (see rowWidth).
 const COMPACT = 700;
+// Column widths, points; the header in render and every row in row() use the same ones.
+const DATE_W = 150, AUTHOR_W = 170, HASH_W = 80;
+// The narrowest a commit's description column may get before the list scrolls sideways.
+const DESC_MIN = 360;
+// The narrowest the graph column gets, so its "Graph" header fits even over a single lane.
+const GRAPH_MIN = 48;
 
 // appLayout is Herdr's layout tree (this file's own layout() lays out the commit graph).
 function findNode(node, id) {
@@ -391,7 +397,9 @@ export default class History extends View {
   }
 
   // The graph column's width in px, shared by rows and the column header; capped at 16 lanes.
-  graphWidth() { return PAD * 2 + Math.min(this.width, 16) * LANE; }
+  graphWidth() { return Math.max(GRAPH_MIN, PAD * 2 + Math.min(this.width, 16) * LANE); }
+  // The narrowest a row may be: the graph, DESC_MIN for the description, then the fixed columns.
+  rowWidth() { return this.graphWidth() + DESC_MIN + DATE_W + AUTHOR_W + HASH_W; }
   // Whether the pane is narrower than COMPACT; false until the first size report.
   compact() { return (this.paneWidth ?? Infinity) < COMPACT; }
 
@@ -406,7 +414,7 @@ export default class History extends View {
       .child(ref.kind === "tag" ? `◇ ${ref.name}` : ref.name);
   }
 
-  // Draws one commit row, ROW px tall. Its Date, Author and Commit widths (150, 170, 80) must match
+  // Draws one commit row, ROW px tall, with the same column widths (DATE_W, AUTHOR_W, HASH_W) as
   // the column header in render.
   row(c, t) {
     const open = this.open === c.hash, merge = c.parents.length > 1;
@@ -414,13 +422,13 @@ export default class History extends View {
     return h_flex().id(`commit-${c.hash}`).h(ROW).flex_none().w_full().items_center()
       .when(open, (e) => e.bg(t.selected))
       .child(this.graphCell(c, t))
-      .child(h_flex().flex_1().min_w(0).gap(6).items_center().pr(12)
+      // Clipped: a run of branch and tag badges must not spill over the Date and Author columns.
+      .child(h_flex().flex_1().min_w(0).overflow_hidden().gap(6).items_center().pr(12)
         .children(c.refs.map((r) => this.badge(r, t)))
         .child(div().min_w(0).truncate().text_color(merge ? t.dim : t.foreground).child(c.subject)))
-      .when(!this.compact(), (e) => e
-        .child(div().w(150).flex_none().truncate().text_color(t.muted).child(when(c.at)))
-        .child(div().w(170).flex_none().truncate().text_color(t.muted).pr(10).child(c.author))
-        .child(div().w(80).flex_none().text_color(t.dim).font_family(settings().font_family ?? "Menlo").child(c.hash.slice(0, 7))));
+      .child(div().w(DATE_W).flex_none().truncate().text_color(t.muted).child(when(c.at)))
+      .child(div().w(AUTHOR_W).flex_none().truncate().text_color(t.muted).pr(10).child(c.author))
+      .child(div().w(HASH_W).flex_none().text_color(t.dim).font_family(settings().font_family ?? "Menlo").child(c.hash.slice(0, 7)));
   }
 
   // Draws a small outlined button for the details panel; `danger` draws it in the blocked colour.
@@ -518,28 +526,33 @@ export default class History extends View {
       .child(div().id("reload").px(6).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground)).tooltip("Re-read local git (no fetch)")
         .on_click((_e, cx) => { this.repoInfo = {}; this.load(cx); }).child("⟳"));
     const columns = h_flex().h(26).flex_none().items_center().border_b(1).border_color(t.border).text_size(11).font_semibold().text_color(t.dim)
-      .child(div().w(this.graphWidth()).flex_none().pl(PAD).truncate().child(compact ? "" : "Graph"))
+      .child(div().w(this.graphWidth()).flex_none().pl(PAD).truncate().child("Graph"))
       .child(div().flex_1().child("Description"))
-      .when(!compact, (e) => e
-        .child(div().w(150).flex_none().child("Date"))
-        .child(div().w(170).flex_none().child("Author"))
-        .child(div().w(80).flex_none().child("Commit")));
+      .child(div().w(DATE_W).flex_none().child("Date"))
+      .child(div().w(AUTHOR_W).flex_none().child("Author"))
+      .child(div().w(HASH_W).flex_none().child("Commit"));
+    // Every column always shows: rows are at least rowWidth() wide, and when the pane is narrower
+    // the column header and the list scroll sideways together.
+    const width = Math.max(this.paneWidth ?? 0, this.rowWidth());
     return v_flex().id("history").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
       .on_size_change((size, cx) => { if (size.width !== this.paneWidth) { this.paneWidth = size.width; cx.notify(); } })
-      .child(header).child(columns)
+      .child(header)
       .when(Boolean(this.error), (e) => e.child(div().p(14).text_color(t.ansi1).child(this.error)))
       .when(!this.error && !this.loading && !this.commits.length, (e) => e.child(div().p(14).text_color(t.dim).child(`No commits in ${repo?.label ?? "this repo"}`)))
-      .child(div().flex_1().min_h(0).relative()
-        .child(uniform_list("history-rows", items.length, (i) => items[i].key, (range) => items.slice(range.start, range.end).map((it) => it.more
-          ? div().id("more").h(ROW).w_full().flex().items_center().justify_center().text_color(t.accent).child(`Load ${PAGE} more`)
-          : this.row(it.c, t)))
-          .on_item_click((key, cx) => {
-            if (key === "more") { this.limit += PAGE; this.load(cx); return; }
-            const c = this.commits.find((x) => x.hash === key);
-            if (c) this.toggle(c, cx);
-          })
-          .size_full())
-        .child(Scrollbar.vertical("history-rows").viewport_from_layout().absolute().inset_0()))
+      .child(div().id("history-hscroll").flex_1().min_h(0).overflow_x_scrollbar()
+        .child(v_flex().h_full().w(width)
+          .child(columns)
+          .child(div().flex_1().min_h(0).relative()
+            .child(uniform_list("history-rows", items.length, (i) => items[i].key, (range) => items.slice(range.start, range.end).map((it) => it.more
+              ? div().id("more").h(ROW).w_full().flex().items_center().justify_center().text_color(t.accent).child(`Load ${PAGE} more`)
+              : this.row(it.c, t)))
+              .on_item_click((key, cx) => {
+                if (key === "more") { this.limit += PAGE; this.load(cx); return; }
+                const c = this.commits.find((x) => x.hash === key);
+                if (c) this.toggle(c, cx);
+              })
+              .size_full())
+            .child(Scrollbar.vertical("history-rows").viewport_from_layout().absolute().inset_0()))))
       .when(Boolean(openCommit), (e) => e.child(this.detailsPanel(openCommit, t)));
   }
 
