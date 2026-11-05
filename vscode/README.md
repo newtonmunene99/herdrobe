@@ -81,10 +81,15 @@ copies): for a folder it can return extra folder roots for Files and Changes, th
 folder scope for History, a status bar badge, and a name for the space. The shape is documented
 at the top of the file.
 
-## Updating
+## Updating and removing
 
 Herdr never updates layouts or mods from others. To update, overwrite your copies of the files
 above with this folder's latest; your `keys.json` stays yours.
+
+To remove both layouts, switch to another layout first, then delete `layouts/vscode*` from
+`~/.config/herdr-app`, the `mods/vscode-*` folders, `themes/vscode-*.json`, and the
+`layout:vscode` and `layout:vscode-inbox` sections of your `keys.json`. Herdr's own layouts are
+untouched throughout.
 
 ## License
 
