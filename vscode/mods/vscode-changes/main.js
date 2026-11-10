@@ -13,7 +13,7 @@ import { spaces, exec, watchFolder, theme, run, layout, shared, setShared, props
 import { contextFor, openHistory, ROOT_IDS } from "./context.js";
 import { inTabStrip } from "./layout.js";
 import { focusPlace } from "./focus.js";
-import { READ, numstatEntries } from "./git-read.js";
+import { READ, GIT_TIMEOUT, numstatEntries } from "./git-read.js";
 import { openDiff } from "./diff-open.js";
 import { changeGroups, changeRows } from "./model.js";
 import { CHANGED, askDiscard, initDiscard, renderDiscard } from "./discard.js";
@@ -46,8 +46,8 @@ const LIMIT = 1000;
 // One section's state from git. `files` paths are repo-relative; `prefix` is the section
 // folder inside its repo ("" for a whole-repo section).
 async function scan(section, on) {
-  const run = (args, cwd) => exec("git", [...READ, ...args], { cwd, on });
-  const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: section.dir, on });
+  const run = (args, cwd) => exec("git", [...READ, ...args], { cwd, on, timeout: GIT_TIMEOUT });
+  const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: section.dir, on, timeout: GIT_TIMEOUT });
   if (top.code !== 0) throw new Error("Not a git repository");
   const repo = top.stdout.trim();
   const prefix = section.whole ? "" : (await run(["rev-parse", "--show-prefix"], section.dir)).stdout.trim();
@@ -197,7 +197,7 @@ export default class Changes extends View {
     cx.spawn(async (cx) => {
       try {
         for (const [args, cwd] of steps) {
-          const r = await exec("git", args, { cwd, on: context.on });
+          const r = await exec("git", args, { cwd, on: context.on, timeout: GIT_TIMEOUT });
           if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         }
         if (this.context === context) done?.();

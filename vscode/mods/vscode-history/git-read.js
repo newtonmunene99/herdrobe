@@ -8,6 +8,11 @@
 // read never fights an agent's own git for the index lock.
 export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 
+// How long a git call may run, for exec's `timeout`. exec stops a command after 30s by default,
+// and in a very large repo `status --untracked-files=all` or `log --topo-order` can take longer.
+// A stopped write can leave .git/index.lock behind, so writes get the same room.
+export const GIT_TIMEOUT = 120_000;
+
 // One letter for a porcelain XY status code: U conflicted (including AA and DD), D deleted, A added
 // or untracked, M anything else that changed. Conflicts come first so a both-added file reads U.
 export function statusLetter(xy) {

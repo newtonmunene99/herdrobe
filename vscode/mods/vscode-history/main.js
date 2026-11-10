@@ -18,7 +18,7 @@ import { exec, theme, settings, run, props, openOverlay, closeOverlay, shared, s
 import { contextFor } from "./context.js";
 import { inTabStrip } from "./layout.js";
 import { focusPlace } from "./focus.js";
-import { READ, numstatEntries } from "./git-read.js";
+import { READ, GIT_TIMEOUT, numstatEntries } from "./git-read.js";
 import { openDiff } from "./diff-open.js";
 import { copy } from "./clipboard.js";
 
@@ -44,9 +44,6 @@ const CHANGED = "vscode-history.changed";
 // Field and record separators for git --format strings: ASCII unit and record separators, which
 // never appear in names or subjects, so splitting on them is safe.
 const SEP = "\x1f", END = "\x1e";
-// How long a git read may run. exec stops a command after 30s by default, and `log --topo-order`
-// walks the whole graph before printing, which takes longer than that in very large repos.
-const GIT_TIMEOUT = 120_000;
 // Runs a read-only git command in `dir`; resolves with exec's result, rejects if git can't start
 // or runs past GIT_TIMEOUT.
 const git = (dir, args) => exec("git", [...READ, ...args], { cwd: dir, timeout: GIT_TIMEOUT });

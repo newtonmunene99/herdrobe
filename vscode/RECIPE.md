@@ -182,10 +182,13 @@ Mods in this folder:
   {mod, props, name}`, or `pane.split {pane, direction: "right", mod, props}`), and the new copy
   records its own pane from `focused()`. `diff-pairs.js` pairs unified-diff lines into rows. Keep
   open runs `tab.new {mod: "vscode-diff", props: {request}}` then closes the preview.
-- `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch; reads pass
-  `timeout: 120000`, since `log --topo-order` can outlast exec's 30s default in a huge repo),
-  a second copy of itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
+- `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch), a second copy of
+  itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
   `{follow: true}` it shows the focused pane's repo instead (used by VS Code · Inbox).
+- `git-read.js` (identical in files, changes, history, diff): `READ`, the flags in front of every
+  git read, and `GIT_TIMEOUT` (120000 ms), which Files, Changes and History pass as exec's
+  `timeout`. exec's 30s default is too short for `status --untracked-files=all` or
+  `log --topo-order` in a huge repo, and a write stopped midway can leave `.git/index.lock`.
 - `context.js` (identical in files, changes, statusbar, history): the workspace-context hook;
   `contextFor(path)` returns null here, and `openHistory()` opens or selects a History tab.
 - `naming.js` (statusbar only): the space-naming hook; `nameSpaces()` does nothing here.

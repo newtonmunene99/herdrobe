@@ -7,7 +7,7 @@ import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { panes, focused, exec, hc, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
 import { contextFor } from "./context.js";
 import { focusPlace } from "./focus.js";
-import { READ, statusLetter, statusEntries } from "./git-read.js";
+import { READ, GIT_TIMEOUT, statusLetter, statusEntries } from "./git-read.js";
 
 // Hands a file to one specific running ttt. ttt listens for this only with "reuseWindow": true in
 // ~/.config/ttt/settings.json, on a socket in its private per-user temp folder whose name ends in
@@ -83,11 +83,11 @@ async function directory(path, on) {
 // Change marks keyed by path relative to `dir`. Git prints repo-relative paths, so strip the
 // folder's prefix inside its repo: this also sidesteps symlinked spellings of the same folder.
 async function changeMarks(dir, on) {
-  const prefix = await exec("git", ["rev-parse", "--show-prefix"], { cwd: dir, on }).catch(() => null);
+  const prefix = await exec("git", ["rev-parse", "--show-prefix"], { cwd: dir, on, timeout: GIT_TIMEOUT }).catch(() => null);
   if (prefix?.code !== 0) return {};
   const p = prefix.stdout.trim();
   // READ writes nothing under .git: the folder watch would refresh again.
-  const status = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "."], { cwd: dir, on }).catch(() => null);
+  const status = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "."], { cwd: dir, on, timeout: GIT_TIMEOUT }).catch(() => null);
   const marks = {};
   if (status?.code === 0) for (const { xy, path } of statusEntries(status.stdout).slice(0, TOTAL)) {
     if (path.startsWith(p)) marks[path.slice(p.length)] = statusLetter(xy);
