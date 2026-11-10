@@ -69,6 +69,7 @@ missed while you're in **VS Code** or have the sidebar on Files.
 | `cmd-shift-g` | Changes (again: hide the sidebar) | Changes, in the right sidebar |
 | `cmd-shift-h` | History for the current workspace context | History, in the right sidebar |
 | `cmd-shift-l` | Pick a layout | Pick a layout |
+| `ctrl-cmd-←→↑↓` | Swap the focused pane with the one on that side | Same |
 
 "Layout: …" in the status bar opens the same layout picker, listing every layout, Herdr's own
 included.

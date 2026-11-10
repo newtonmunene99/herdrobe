@@ -78,6 +78,8 @@ Clicks and keys:
   opens a popup of every layout, Herdr's own included, current one ticked; picking switches.
 - `cmd-shift-e` Files, `cmd-shift-g` Changes (press again to hide the sidebar), `cmd-shift-h`
   History (when a workspace context provides it), `cmd-shift-l` opens the layout popup.
+  `ctrl-cmd-left/right/up/down` swaps the focused pane with its neighbour on that side, like
+  VS Code's Move Editor into Group (`pane.swap {direction}` bound in `keys.json`).
 
 Panels:
 
@@ -180,8 +182,9 @@ Mods in this folder:
   {mod, props, name}`, or `pane.split {pane, direction: "right", mod, props}`), and the new copy
   records its own pane from `focused()`. `diff-pairs.js` pairs unified-diff lines into rows. Keep
   open runs `tab.new {mod: "vscode-diff", props: {request}}` then closes the preview.
-- `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch), a second copy of
-  itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
+- `vscode-history`: `exec("git", …)` (log, show, switch, checkout, branch; reads pass
+  `timeout: 120000`, since `log --topo-order` can outlast exec's 30s default in a huge repo),
+  a second copy of itself as a dialog for checkout and branch, `notify`, `pane.split` with `git show`. With props
   `{follow: true}` it shows the focused pane's repo instead (used by VS Code · Inbox).
 - `context.js` (identical in files, changes, statusbar, history): the workspace-context hook;
   `contextFor(path)` returns null here, and `openHistory()` opens or selects a History tab.
@@ -291,7 +294,8 @@ Swatches use the same colours as Herdr's own space picker.
   it**; while one space is picked, switching spaces another way moves the filter along.
   Right-click a space for Herdr's own menu (Rename, Close, worktrees).
 - **Keys**: `cmd-shift-a` Agents, `cmd-shift-e` Files, `cmd-shift-g` Changes, `cmd-shift-h`
-  History (the last two toggle the right sidebar), `cmd-shift-l` layout popup.
+  History (the last two toggle the right sidebar), `cmd-shift-l` layout popup,
+  `ctrl-cmd-left/right/up/down` swap the focused pane with its neighbour on that side.
 
 ## Built from
 
