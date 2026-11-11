@@ -70,11 +70,15 @@ Clicks and keys:
 - Command-center box, "⇧⌘P Commands": open the command palette.
 - Sidebar toggle in the title bar: show or hide the sidebar.
 - Activity bar: an icon shows that view; clicking the view already shown hides the sidebar, as
-  VS Code does. Machines and the remote corner open Settings → Machines; the gear opens Settings.
+  VS Code does. Machines opens Settings → Machines; the gear opens Settings.
 - Tabs: click selects, double-click renames, drag onto another tab reorders, right-click opens
   Herdr's tab menu, the wheel moves to the previous or next tab. `+` opens Herdr's new-terminal
   menu; the split button splits the focused pane right.
-- Status bar: agent count goes to the next agent; a context badge copies its value; "Layout: VS Code"
+- Status bar: the remote corner opens the machine switcher, a popup listing each machine (this
+  computer first, a green dot when connected, its state otherwise) with its spaces, the current
+  one ticked: picking a space switches to it and so to its machine; "New space on <machine>"
+  under each connected machine starts one there (`space.new {machine}`); "Manage machines…"
+  opens Settings → Machines. Agent count goes to the next agent; a context badge copies its value; "Layout: VS Code"
   opens a popup of every layout, Herdr's own included, current one ticked; picking switches.
 - `cmd-shift-e` Files, `cmd-shift-g` Changes (press again to hide the sidebar), `cmd-shift-h`
   History (when a workspace context provides it), `cmd-shift-l` opens the layout popup.
@@ -159,9 +163,11 @@ Mods in this folder:
   `tab.close`, `tab.next`/`tab.prev`, `pane.split`; opens the shipped `menu` and `new-menu` mods
   as popups.
 - `vscode-statusbar`: `agents()`, `focused()`, `shared("layout")`; `agent.next`, `pane.focus`,
-  `app.settings {section: "machines"}`, `layout.switch {name}` from its layout popup (a second
-  copy of itself, props `{layoutMenu: true}`); takes `history` and `layouts` from
-  `nextCommand()`; runs `naming.js`'s `nameSpaces()` every 2 s (a no-op here). It also keeps the
+  `layout.switch {name}` from its layout popup (a second copy of itself, props
+  `{layoutMenu: true}`); the machine switcher (`machines.js`, another copy, props
+  `{machineMenu: true}`) reads `spaces()`, `machines()` and `hc machine ls --json`, and runs
+  `space.select {id}`, `space.new {machine}` and `app.settings {section: "machines"}`; takes
+  `history`, `layouts` and `machines` from `nextCommand()`; runs `naming.js`'s `nameSpaces()` every 2 s (a no-op here). It also keeps the
   Inbox's record (`inbox.js`, below) in both layouts.
 - `vscode-files` (cloned from Herdr's `files`): `exec` (`sh`, `git status`, PowerShell on
   Windows), `readTextFile`, `watchFolder`, `hc get` (to find a running ttt), `pane.split` /

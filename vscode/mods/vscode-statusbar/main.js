@@ -1,8 +1,9 @@
-// VS Code-style status bar: a blue "remote" corner with the space's machine, then branch and
-// agents; the layout name on the right opens a picker of every layout. It is the mod that tracks
-// the Inbox (inbox.js): it is on screen in both VS Code layouts from launch. When context.js gives the
-// focused folder a workspace context, it also shows that context's badge. It runs naming.js's
-// nameSpaces() on a timer; the published naming.js does nothing.
+// VS Code-style status bar: a blue "remote" corner with the space's machine (click: the machine
+// switcher, machines.js), then branch and agents; the layout name on the right opens a picker of
+// every layout. It is the mod that tracks the Inbox (inbox.js): it is on screen in both VS Code
+// layouts from launch. When context.js gives the focused folder a workspace context, it also
+// shows that context's badge. It runs naming.js's nameSpaces() on a timer; the published
+// naming.js does nothing.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { spaces, agents, theme, run, shared, nextCommand, props, layouts, openOverlay, closeOverlay } from "herdr";
@@ -11,6 +12,7 @@ import { nameSpaces } from "./naming.js";
 import { focusPlace } from "./focus.js";
 import { copy } from "./clipboard.js";
 import { inboxView, trackInbox, lookTick } from "./inbox.js";
+import { openMachineMenu, machineMenu } from "./machines.js";
 
 // The active space and the focused folder's workspace context. Contexts describe checkouts on
 // this computer, so a folder on another machine (see focusPlace) never has one.
@@ -35,20 +37,22 @@ function openLayoutMenu() {
 }
 
 // The status bar, docked in both VS Code layouts; with props { layoutMenu: true } it is the
-// layout popup instead (see openLayoutMenu).
+// layout popup instead (see openLayoutMenu), and with { machineMenu: true } the machine switcher.
 export default class StatusBar extends View {
   // Listens for this mod's key commands and starts the naming and settling timers.
   init(_props, cx) {
-    // The layout popup copy only draws its list: no tracking, renaming or timers.
-    if (props()?.layoutMenu) return;
+    // The popup copies only draw their lists: no tracking, renaming or timers.
+    if (props()?.layoutMenu || props()?.machineMenu) return;
     // keys.json binds cmd-shift-h to "vscode-statusbar.history" and cmd-shift-l to
-    // "vscode-statusbar.layouts": this bar is always shown, so the keys work from any view.
+    // "vscode-statusbar.layouts"; "vscode-statusbar.machines" (unbound) opens the machine
+    // switcher. This bar is always shown, so the keys work from any view.
     cx.spawn(async () => {
       for (;;) {
         const c = String(await nextCommand()).split(/[.:]/).pop();
         const { ctx } = contextHere();
         if (c === "history" && ctx?.history) openHistory(run, spaces, ctx.history);
         if (c === "layouts") openLayoutMenu();
+        if (c === "machines") openMachineMenu();
       }
     });
     // Space naming lives in naming.js (a no-op in the published copy); it runs every 2000 ms.
@@ -71,6 +75,7 @@ export default class StatusBar extends View {
   // docked bar writes the inbox.
   render() {
     if (props()?.layoutMenu) return this.layoutMenu();
+    if (props()?.machineMenu) return machineMenu();
     const t = theme();
     const { space, ctx } = contextHere();
     const badge = ctx?.badge;
@@ -84,8 +89,8 @@ export default class StatusBar extends View {
     const current = layoutName(shared("layout"));
     return h_flex().size_full().items_center().text_size(11.5).text_color(t.foreground)
       .child(h_flex().id("remote").h_full().px(9).gap(5).items_center().flex_none().bg(t.accent).text_color(t.accent_foreground)
-        .cursor_pointer().hover((s) => s.opacity(0.9)).tooltip("Machines")
-        .on_click(() => run("app.settings", { section: "machines" }))
+        .cursor_pointer().hover((s) => s.opacity(0.9)).tooltip("Switch machine")
+        .on_click((_e, cx) => { cx.spawn(() => openMachineMenu()); })
         .child(svg(ICON("remote")).size(12))
         .child(space?.machine ?? "This computer"))
       .when(Boolean(space?.branch), (el) => el.child(this.item("branch", [svg(ICON("git-branch")).size(12), div().child(space.branch)], "Git branch")))
