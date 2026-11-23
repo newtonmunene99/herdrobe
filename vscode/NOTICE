@@ -18,7 +18,9 @@ Their mod.json files record this as "cloned_from".
 - mods/vscode-agents/main.js includes the space-colour code (MARK,
   PROJECT_COLORS, spaceColors, spaceColor) copied unchanged from Herdr's
   shipped "picker" mod (version 0.1.13), so both give a space the same colour.
-  It says so where the copy starts.
+  It says so where the copy starts. Its clean() pattern, which strips status
+  glyphs from agent titles, is the shipped "agents" mod's (version 0.1.17),
+  with "~" added.
 
 These icons are unmodified copies of icons shipped with Herdr's own mods
 (Apache 2.0, as above; most are Lucide icons, see below):

@@ -47,8 +47,11 @@ function spaceColor(t, p) {
   return c.startsWith("#") ? c : (MARK[c] ?? t[c]);
 }
 
-// Strips the leading glyphs (spinners, status marks) agents put in front of their titles.
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}~]+/u, "").trim();
+// Strips the leading glyphs (spinners, status marks) agents put in front of their titles, and
+// Codex's blinking "[ ! ] " / "[ . ] " mark. Stops at a letter, digit, "~", an opening bracket or
+// quote ("[web] login"), or an emoji the person typed ("🔴 login", "❤️ deploy"), except the
+// known status marks ✋ and ⏳. The pattern is the shipped "agents" mod's (0.1.17), plus "~".
+const clean = (s) => (s ?? "").replace(/^(?:\[ [!.] \] |[✋⏳]️?(?=\s)|(?!(?:\p{Emoji}️|[#*]⃣))[^\p{L}\p{N}\p{Ps}\p{Pi}\p{Emoji_Presentation}~])+/u, "").trim();
 
 // Formats a time in ms since the epoch as a short age ("now", "4m", "2h", "3d"); "" for none.
 function ago(ms) {
