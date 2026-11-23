@@ -131,21 +131,22 @@ export default class Changes extends View {
   busy() { return Object.values(this.state).some((s) => s.busy); }
 
   // Rescans every section, one after another. A new key() first resets all state, the selection
-  // and the watch. It does nothing while a scan or git action runs; act refreshes when it
-  // finishes. An optional section whose folder fails to scan is hidden rather than shown as an
-  // error. The selection (the row the Diff tab shows) clears when that row is gone.
+  // and the watch, and drops any scan or git action still running for the old folder: a slow or
+  // stuck git there must not hold this one (Herdr's own Changes fix, #1253). Otherwise it does
+  // nothing while a scan or git action runs; act refreshes when it finishes. An optional section
+  // whose folder fails to scan is hidden rather than shown as an error. The selection (the row
+  // the Diff tab shows) clears when that row is gone.
   refresh(cx) {
-    if (this.loading || this.busy()) return;
     const loc = location(), next = key();
     if (next !== this.context?.key) {
       this.sections = sectionsFor(loc);
       this.context = { key: next, on: loc.on, sections: this.sections };
-      this.state = {}; this.open = null; this.watching = null; this.error = null;
+      this.state = {}; this.open = null; this.watching = null; this.error = null; this.loading = false;
       // State first: if resetting a box ever throws, render still finds every section.
       for (const s of this.sections) this.state[s.id] = { files: [], staged: [], changes: [], others: 0, stagedOutside: 0, message: "", note: null, busy: null, loaded: false };
       for (const s of this.sections) this.input(s.id).set_value("");
     }
-    if (!this.sections.length) return;
+    if (this.loading || this.busy() || !this.sections.length) return;
     const context = this.context;
     this.loading = true;
     cx.spawn(async (cx) => {
@@ -163,7 +164,7 @@ export default class Changes extends View {
         this.watch(context, cx);
         const all = this.visible().flatMap((sec) => this.state[sec.id].files.map((f) => ({ sid: sec.id, path: f.path, group: f.group })));
         if (this.open && !all.some((o) => sameFile(o, this.open))) this.open = null;
-      } finally { this.loading = false; cx.notify(); }
+      } finally { if (this.context === context) this.loading = false; cx.notify(); }
     });
   }
 
