@@ -1,39 +1,15 @@
 // A lazy file browser with bounded read-only previews. It browses the focused pane's folder as the
 // stock Files mod does, or, when context.js gives that folder a workspace context, the folder
 // roots the context lists, each as a collapsible section.
-// Clicking a file opens it in ttt (see openInTtt); remote spaces keep the in-panel preview.
+// Clicking a file opens it in ttt (see ttt.js); remote spaces keep the in-panel preview.
+// link.js does the same for Ctrl/Cmd-clicked file paths in terminals.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { panes, focused, exec, hc, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
+import { exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
+import { openInTtt } from "./ttt.js";
 import { contextFor } from "./context.js";
 import { focusPlace } from "./focus.js";
 import { READ, GIT_TIMEOUT, statusLetter, statusEntries } from "./git-read.js";
-
-// Hands a file to one specific running ttt. ttt listens for this only with "reuseWindow": true in
-// ~/.config/ttt/settings.json, on a socket in its private per-user temp folder whose name ends in
-// the editor's pid in base 36. The socket is checked first because, when TTT_FORWARD_SOCKET can't
-// be reached, ttt falls back to the newest editor anywhere, which may be in another space.
-// stdin is /dev/null because ttt never forwards when stdin is a pipe (it reads it as a buffer).
-const FORWARD = 'd=${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}; d=${d:-/tmp}; d="${d%/}/ttt-$(id -u)"; '
-  + 'for s in "$d"/*-"$1".sock; do [ -S "$s" ] && TTT_FORWARD_SOCKET="$s" exec ttt "$2" </dev/null; done; exit 3';
-
-// Opens `path` in a ttt already running in the shown tab, else in a new ttt split to the right
-// of the focused pane. --new-window keeps that new ttt from forwarding to an editor elsewhere.
-async function openInTtt(path) {
-  const f = focused(), here = panes().filter(p => p.tab === f?.tab && p.terminal);
-  for (const p of here) {
-    const r = await hc(["get", p.terminal, "--json"]).catch(() => null);
-    let fg = null;
-    try { fg = r?.code === 0 ? JSON.parse(r.stdout).foreground : null; } catch { /* not this one */ }
-    if (fg?.name !== "ttt" || !fg.pid) continue;
-    const sent = await exec("sh", ["-c", FORWARD, "ttt-open", fg.pid.toString(36), path]).catch(() => null);
-    if (sent?.code === 0) return run("pane.focus", { pane: p.pane });
-  }
-  const beside = here.find(p => p.pane === f?.pane) ?? here[0];
-  const argv = ["ttt", "--new-window", path];
-  if (beside) run("pane.split", { direction: "right", pane: beside.pane, argv });
-  else run("tab.new", { argv });
-}
 
 // Where the panel looks: the focused pane's live folder, its machine and the active space (see
 // focusPlace).

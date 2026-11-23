@@ -33,9 +33,10 @@ merge `keys.json` into yours. Then pick one with `ctrl-shift-l` or Settings → 
 - **macOS.** Keys use `cmd`, copying uses `pbcopy`. Most of it works elsewhere; see
   [RECIPE.md](RECIPE.md#watch-out).
 - **git**, for Files, Changes and History.
-- **[ttt](https://tttedit.dev)** for opening files from the Files panel:
-  `brew install eugenioenko/ttt/ttt`, with `"reuseWindow": true` in
+- **[ttt](https://tttedit.dev)** for opening files from the Files panel and Cmd-clicked file
+  paths in terminals: `brew install eugenioenko/ttt/ttt`, with `"reuseWindow": true` in
   `~/.config/ttt/settings.json` so clicks reuse one editor.
+- **Herdr 0.1.17 or newer**, for the Cmd-click link handler.
 
 **What the mods run:** `git` (status, diff, add, restore, clean, commit, push, log, checkout,
 branch), `sh`, `pbcopy`,

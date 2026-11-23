@@ -92,6 +92,10 @@ Panels:
   refreshed when files change. Clicking a file opens it in **ttt**: in a
   ttt already running in the shown tab if there is one, else in a new ttt split to the right. A
   space on another machine shows a read-only preview in the panel instead.
+- **Cmd-clicking a file path in a terminal** opens it the same way, in the clicked terminal's
+  tab, with the cursor on the line when the text carried one (`src/main.go:42`,
+  `./main.go:42:7:`). Herdr only offers paths with a slash: a bare `main.go:42` isn't a link. URLs, folders, binary files (images, PDFs, archives, media, fonts, libraries),
+  paths on another machine, or no `ttt` on PATH go to Herdr's own opener instead.
 - **Changes**: uncommitted changes of the focused pane's repo in two groups, as in VS Code:
   **STAGED** (only when something is) and **CHANGES**, each with its count, as a folder tree
   (single-child folders joined, `mods/vscode-changes`; click a folder to fold it) or a flat
@@ -132,7 +136,8 @@ seconds; the published copy does nothing, and a personal one may name spaces.
 
 ## Built from
 
-Layout tree (`layouts/vscode.json`), root a column with `"titlebar": "none"`:
+Layout tree (`layouts/vscode.json`), root a column with `"titlebar": "none"` and
+`"link_handlers": ["vscode-files"]`:
 
 ```
 root (column, gap 6, background chrome)
@@ -171,7 +176,11 @@ Mods in this folder:
   Inbox's record (`inbox.js`, below) in both layouts.
 - `vscode-files` (cloned from Herdr's `files`): `exec` (`sh`, `git status`, PowerShell on
   Windows), `readTextFile`, `watchFolder`, `hc get` (to find a running ttt), `pane.split` /
-  `tab.new` with `argv: ["ttt", "--new-window", path]`.
+  `tab.new` with `argv: ["ttt", "--new-window", path]`; all in `ttt.js`'s `openInTtt(arg, {tab,
+  pane})`. `link.js` exports `handleLink`, declared in `mod.json` as `"link_handlers": [{"kind":
+  "file", "pattern": "."}]`: it asks `link-target.js` (pure, no herdr import) for the path and
+  `path:line[:col]`, checks `test -f` and `command -v ttt` with `sh`, then calls `openInTtt` with
+  the click's `source.tab` and `source.pane`, else returns `"pass"`.
 - `vscode-changes` (cloned from Herdr's `changes`): `exec("git", …)` for status, diff
   (`--cached` for Staged rows), `add -A` (stage), `restore --staged` (unstage; `rm --cached` before
   the first commit), `restore` and `clean -f` on the listed files (discard), commit and push;
@@ -230,6 +239,12 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
   the pointer.
 - The two cloned mods are frozen at Herdr 0.1.12's `files` and `changes`; later fixes to those
   shipped mods don't reach them.
+- Herdr may or may not cut a `:42` position off `link.path`; `link-target.js` takes it from the
+  path first, then from `link.raw`. A click from a peek or a layout terminal block has no pane in
+  `panes()`, so ttt opens beside the tab's first terminal.
+- The first time a mod with link rules loads, Herdr adds it to the shown personal layout's
+  `link_handlers` by rewriting the whole file in its own key order. Ship the layouts with the
+  line already in place.
 
 ## Done when
 
@@ -246,6 +261,8 @@ Programs it runs: `git`, `sh`, `pbcopy`, `ttt`, `hc`.
 - An agent going working → blocked → done changes its tab's slot from spinner to red dot to green
   dot, and the status bar and Agents badge count it.
 - Clicking a file in Files opens it in ttt beside the focused pane; clicking another reuses that ttt.
+- `echo mods/vscode-files/link.js:9` in a terminal, then Cmd-clicking it, opens that file in the
+  same ttt with the cursor on line 9; Cmd-clicking a `.png` path or a URL does not.
 - Changes commits a file and the list empties; History opens as a tab with lanes and a details
   panel.
 - Switching the system between light and dark mode switches the colors.
